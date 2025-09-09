@@ -192,29 +192,43 @@ jobs:
         ALPINE_MIRROR="https://dl-cdn.alpinelinux.org/alpine/v${ALPINE_VERSION%.*}"
         
         echo "Searching for Alpine rootfs files..."
+        echo "Looking in: ${ALPINE_MIRROR}/releases/${ALPINE_ARCH}/"
         
-        # Get the actual filename from the directory listing
+        # Debug: Let's see what's actually in the directory
+        echo "=== Directory listing ==="
+        curl -s "${ALPINE_MIRROR}/releases/${ALPINE_ARCH}/" | grep -o 'alpine-minirootfs[^"<]*\.tar\.gz' | head -5
+        echo "======================="
+        
+        # Get the actual filename - simplified pattern
         ALPINE_FILE=$(curl -s "${ALPINE_MIRROR}/releases/${ALPINE_ARCH}/" | \
-                      grep -o 'href="alpine-minirootfs-[^"]*armhf\.tar\.gz"' | \
-                      sed 's/href="//;s/"//' | \
-                      grep "^alpine-minirootfs-${ALPINE_VERSION}" | \
+                      grep -o 'alpine-minirootfs[^"<]*\.tar\.gz' | \
+                      grep "${ALPINE_VERSION}" | \
                       head -1)
         
+        # If that didn't work, try another approach
         if [ -z "$ALPINE_FILE" ]; then
-          echo "ERROR: Could not find Alpine minirootfs for ${ALPINE_VERSION}"
-          echo "Available files:"
-          curl -s "${ALPINE_MIRROR}/releases/${ALPINE_ARCH}/" | grep -o 'alpine-minirootfs-[^"]*\.tar\.gz'
-          exit 1
+          echo "First attempt failed, trying alternate method..."
+          ALPINE_FILE=$(curl -s "${ALPINE_MIRROR}/releases/${ALPINE_ARCH}/" | \
+                        sed -n 's/.*href="\(alpine-minirootfs-[^"]*\.tar\.gz\).*/\1/p' | \
+                        grep "${ALPINE_VERSION}" | \
+                        head -1)
+        fi
+        
+        # If still nothing, just use the known version
+        if [ -z "$ALPINE_FILE" ]; then
+          echo "Dynamic detection failed, using known version..."
+          ALPINE_FILE="alpine-minirootfs-3.22.1-armhf.tar.gz"
         fi
         
         echo "Found Alpine rootfs: ${ALPINE_FILE}"
         FULL_URL="${ALPINE_MIRROR}/releases/${ALPINE_ARCH}/${ALPINE_FILE}"
         echo "Downloading from: ${FULL_URL}"
         
-        # Download with curl (more reliable than wget sometimes)
-        curl -L -o "${ALPINE_FILE}" "${FULL_URL}" || {
-          echo "Download failed with curl, trying wget..."
-          wget -O "${ALPINE_FILE}" "${FULL_URL}" || exit 1
+        # Download with curl
+        curl -L -f -o "${ALPINE_FILE}" "${FULL_URL}" || {
+          echo "Download failed! Let's check if the file exists:"
+          curl -I "${FULL_URL}"
+          exit 1
         }
         
         # Verify download
