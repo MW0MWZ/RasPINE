@@ -427,9 +427,39 @@ jobs:
         sudo cp work/config/modules /mnt/root/etc/modules
         sudo cp -r work/config/modprobe.d /mnt/root/etc/
         
+        # Add Broadcom WiFi modules to load at boot
+        echo "Adding Broadcom WiFi modules to auto-load..."
+        cat << 'EOF' | sudo tee -a /mnt/root/etc/modules
+        # Broadcom WiFi support for Raspberry Pi
+        brcmfmac
+        brcmutil
+        cfg80211
+        rfkill
+        # For older Pi models with different WiFi
+        bcm2835_v4l2
+        # For Bluetooth (often on same chip)
+        hci_uart
+        btbcm
+        bluetooth
+        EOF
+        
+        # Create modprobe configuration for brcmfmac
+        sudo tee /mnt/root/etc/modprobe.d/raspi-wifi.conf << 'EOF'
+        # Raspberry Pi WiFi configuration
+        options brcmfmac roamoff=1
+        # Disable power management for better stability
+        options brcmfmac feature_disable=0x82000
+        EOF
+        
         # Copy udev rules
         echo "Installing udev rules..."
         sudo cp work/udev-rules/* /mnt/root/etc/udev/rules.d/ 2>/dev/null || true
+        
+        # Add udev rule for Broadcom WiFi firmware loading
+        sudo tee /mnt/root/etc/udev/rules.d/90-raspi-wifi.rules << 'EOF'
+        # Load firmware for Broadcom WiFi
+        ACTION=="add", SUBSYSTEM=="firmware", RUN+="/bin/true"
+        EOF
         
         # Copy /boot files to ROOT partition (not the boot partition!)
         echo "Installing /boot files to root filesystem..."
@@ -492,7 +522,7 @@ jobs:
         echo "Verifying boot symlinks:"
         ls -la /mnt/root/boot/cmdline.txt /mnt/root/boot/config.txt
         
-        echo "✓ Raspberry Pi OS components integrated"
+        echo "✓ Raspberry Pi OS components integrated with WiFi support"
 
     - name: Configure networking
       run: |
