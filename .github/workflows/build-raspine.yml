@@ -8,14 +8,6 @@ on:
         description: 'Enable debug mode'
         required: false
         default: false
-  push:
-    branches: [ main ]
-    paths:
-      - 'scripts/**'
-      - '.github/workflows/**'
-  schedule:
-    # Monthly build on the 1st at 2 AM UTC
-    - cron: '0 2 1 * *'
 
 env:
   ALPINE_VERSION: "3.22"
@@ -80,22 +72,28 @@ jobs:
         mkdir -p cache/raspios
         cd cache/raspios
         
-        # Get the latest Raspberry Pi OS Lite image URL
-        RASPIOS_URL=$(curl -s https://downloads.raspberrypi.org/raspios_lite_armhf/images/ | \
-          grep -oE 'href="[^"]+/"' | \
-          sed 's/href="//;s/"//' | \
+        # Get the latest Raspberry Pi OS Lite image directory
+        echo "Fetching directory listing..."
+        RASPIOS_DIR=$(curl -s https://downloads.raspberrypi.org/raspios_lite_armhf/images/ | \
+          grep -oE 'raspios_lite_armhf-[0-9]{4}-[0-9]{2}-[0-9]{2}/' | \
           sort -V | \
           tail -1)
         
-        LATEST_DIR="https://downloads.raspberrypi.org/raspios_lite_armhf/images/${RASPIOS_URL}"
+        if [ -z "$RASPIOS_DIR" ]; then
+          echo "Failed to find Raspberry Pi OS directory"
+          exit 1
+        fi
         
-        # Find the actual image file
+        LATEST_DIR="https://downloads.raspberrypi.org/raspios_lite_armhf/images/${RASPIOS_DIR}"
+        echo "Latest directory: ${LATEST_DIR}"
+        
+        # Find the actual image file in that directory
         IMAGE_FILE=$(curl -s "${LATEST_DIR}" | \
           grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}-raspios-[^"]+\.img\.xz' | \
           head -1)
         
         if [ -z "$IMAGE_FILE" ]; then
-          echo "Failed to find Raspberry Pi OS image"
+          echo "Failed to find Raspberry Pi OS image in ${LATEST_DIR}"
           exit 1
         fi
         
