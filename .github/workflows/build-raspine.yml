@@ -252,9 +252,27 @@ jobs:
 
     - name: Configure Alpine base system
       run: |
+        # Copy DNS configuration into chroot
+        echo "Setting up DNS for chroot..."
+        sudo cp /etc/resolv.conf /mnt/root/etc/resolv.conf
+        
+        # Also mount necessary filesystems for chroot
+        sudo mount -t proc none /mnt/root/proc
+        sudo mount -t sysfs none /mnt/root/sys
+        sudo mount -o bind /dev /mnt/root/dev
+        sudo mount -o bind /dev/pts /mnt/root/dev/pts || true
+        
         cat << 'EOF' | sudo tee /mnt/root/setup-alpine.sh
         #!/bin/sh
         set -e
+        
+        # Ensure DNS is working
+        echo "Testing DNS resolution..."
+        nslookup dl-cdn.alpinelinux.org || {
+          echo "DNS not working, using Google DNS..."
+          echo "nameserver 8.8.8.8" > /etc/resolv.conf
+          echo "nameserver 8.8.4.4" >> /etc/resolv.conf
+        }
         
         # Set up Alpine repositories
         cat > /etc/apk/repositories << REPOS
@@ -263,9 +281,11 @@ jobs:
         REPOS
         
         # Update package index
+        echo "Updating package index..."
         apk update
         
         # Install essential packages
+        echo "Installing packages..."
         apk add --no-cache \
           alpine-base \
           openrc \
@@ -282,6 +302,7 @@ jobs:
           iw
         
         # Set up services
+        echo "Configuring services..."
         rc-update add devfs sysinit
         rc-update add dmesg sysinit
         rc-update add hwclock boot
@@ -319,12 +340,23 @@ jobs:
         mkdir -p /lib/firmware
         mkdir -p /var/log
         
+        echo "Alpine configuration complete!"
         EOF
         
         # Make script executable and run it
         sudo chmod +x /mnt/root/setup-alpine.sh
         sudo chroot /mnt/root /setup-alpine.sh
+        
+        # Cleanup
         sudo rm /mnt/root/setup-alpine.sh
+        
+        # Unmount the bind mounts
+        sudo umount /mnt/root/dev/pts 2>/dev/null || true
+        sudo umount /mnt/root/dev
+        sudo umount /mnt/root/sys
+        sudo umount /mnt/root/proc
+        
+        echo "✓ Alpine base system configured"
 
     - name: Configure networking
       run: |
