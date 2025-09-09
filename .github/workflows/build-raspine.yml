@@ -445,6 +445,32 @@ jobs:
         nohook wpa_supplicant
         EOF
         
+        # Create dhcpcd hook to sync time when we get an IP
+        sudo mkdir -p /mnt/root/lib/dhcpcd/dhcpcd-hooks
+        sudo tee /mnt/root/lib/dhcpcd/dhcpcd-hooks/30-time-sync << 'EOF'
+        #!/bin/sh
+        # Sync time when network comes up
+        
+        case "$reason" in
+        BOUND|INFORM|REBIND|REBOOT)
+            # Only sync if time is clearly wrong (before year 2024)
+            if [ $(date +%Y) -lt 2024 ]; then
+                logger -t dhcpcd "Time appears wrong, syncing..."
+                # Try to sync time using busybox ntpd
+                ntpd -q -n -p pool.ntp.org 2>/dev/null || \
+                ntpd -q -n -p time.google.com 2>/dev/null || \
+                ntpd -q -n -p time.cloudflare.com 2>/dev/null || \
+                logger -t dhcpcd "Time sync failed - set manually with: date -s 'YYYY-MM-DD HH:MM:SS'"
+                
+                if [ $(date +%Y) -ge 2024 ]; then
+                    logger -t dhcpcd "Time sync successful: $(date)"
+                fi
+            fi
+            ;;
+        esac
+        EOF
+        sudo chmod +x /mnt/root/lib/dhcpcd/dhcpcd-hooks/30-time-sync
+        
         # Network interfaces configuration (simplified for dhcpcd)
         sudo tee /mnt/root/etc/network/interfaces << 'EOF'
         auto lo
@@ -506,7 +532,7 @@ jobs:
         
         sudo chmod +x /mnt/root/usr/local/bin/wifi-setup
         
-        echo "✓ Networking configured with dhcpcd"
+        echo "✓ Networking configured with dhcpcd and time sync"
 
     - name: Integrate Raspberry Pi OS components
       run: |
