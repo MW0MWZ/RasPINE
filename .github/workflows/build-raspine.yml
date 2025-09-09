@@ -67,7 +67,7 @@ jobs:
 
     - name: Cache Raspberry Pi OS image
       id: cache-raspios
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: cache/raspios
         key: raspios-${{ runner.os }}-month-${{ env.BUILD_DATE }}
@@ -393,7 +393,7 @@ jobs:
         EOF
 
     - name: Upload artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: RasPINE-${{ env.BUILD_DATE }}
         path: |
