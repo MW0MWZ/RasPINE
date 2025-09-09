@@ -110,34 +110,35 @@ jobs:
       run: |
         mkdir -p work/{boot,rootfs,modules,firmware,config}
         
+        echo "Setting up loop device..."
         # Set up loop device for the image
         sudo losetup -P /dev/loop0 cache/raspios/raspios-lite.img
         
         # Mount partitions
         sudo mkdir -p /mnt/{raspios-boot,raspios-root}
+        echo "Mounting partitions..."
         sudo mount /dev/loop0p1 /mnt/raspios-boot
         sudo mount /dev/loop0p2 /mnt/raspios-root
         
         # Copy boot files
-        echo "Copying boot partition..."
+        echo "Extracting boot files..."
         sudo cp -a /mnt/raspios-boot/* work/boot/
         
         # Copy additional /boot files (not in boot partition)
         if [ -d /mnt/raspios-root/boot ]; then
-          echo "Copying additional /boot files..."
           sudo cp -a /mnt/raspios-root/boot/* work/boot/ 2>/dev/null || true
         fi
         
         # Copy kernel modules (the actual module files)
-        echo "Copying kernel modules..."
+        echo "Extracting kernel modules..."
         sudo cp -a /mnt/raspios-root/lib/modules/* work/modules/
         
         # Copy firmware
-        echo "Copying firmware..."
+        echo "Extracting firmware..."
         sudo cp -a /mnt/raspios-root/lib/firmware/* work/firmware/
         
         # Copy important config files (note: /etc/modules is a file, not a directory)
-        echo "Copying configuration files..."
+        echo "Extracting configuration..."
         sudo cp /mnt/raspios-root/etc/modules work/config/modules
         sudo cp -r /mnt/raspios-root/etc/modprobe.d work/config/
         
@@ -151,9 +152,11 @@ jobs:
         done
         
         # Cleanup
+        echo "Cleaning up..."
         sudo umount /mnt/raspios-boot
         sudo umount /mnt/raspios-root
         sudo losetup -d /dev/loop0
+        echo "Extraction complete"
 
     - name: Create empty image
       run: |
