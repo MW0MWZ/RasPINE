@@ -191,7 +191,7 @@ jobs:
       run: |
         # Download Alpine mini root filesystem
         ALPINE_MIRROR="https://dl-cdn.alpinelinux.org/alpine/v${ALPINE_VERSION%.*}"
-        ALPINE_ROOTFS="alpine-minirootfs-${ALPINE_VERSION}.0-${ALPINE_ARCH}.tar.gz"
+        ALPINE_ROOTFS="alpine-minirootfs-3.22.1-${ALPINE_ARCH}.tar.gz"
         
         wget -q "${ALPINE_MIRROR}/releases/${ALPINE_ARCH}/${ALPINE_ROOTFS}"
         
