@@ -139,9 +139,25 @@ jobs:
         echo "Extracting kernel modules..."
         sudo cp -a /mnt/raspios-root/lib/modules/* work/modules/
         
-        # Copy firmware
+        # Copy firmware - including regulatory database
         echo "Extracting firmware..."
         sudo cp -a /mnt/raspios-root/lib/firmware/* work/firmware/
+        
+        # Specifically verify regulatory files exist
+        echo "Checking for regulatory database files..."
+        for reg_file in regulatory.db regulatory.db.p7s; do
+          if [ -f "/mnt/raspios-root/lib/firmware/${reg_file}" ]; then
+            echo "Found: ${reg_file}"
+          else
+            echo "WARNING: ${reg_file} not found in RaspberryPi OS"
+          fi
+        done
+        
+        # Also check /usr/lib/firmware in case regulatory.db is there
+        if [ -d /mnt/raspios-root/usr/lib/firmware ]; then
+          echo "Also copying /usr/lib/firmware..."
+          sudo cp -a /mnt/raspios-root/usr/lib/firmware/* work/firmware/ 2>/dev/null || true
+        fi
         
         # Copy important config files (note: /etc/modules is a file, not a directory)
         echo "Extracting configuration..."
@@ -150,7 +166,7 @@ jobs:
         
         # Copy Pi-specific udev rules
         mkdir -p work/udev-rules
-        for rule in 99-com.rules 10-local-rpi.rules 95-backlight.rules; do
+        for rule in 99-com.rules 10-local-rpi.rules 95-backlight.rules 60-wireless-regdb.rules 85-regulatory.rules; do
           [ -f "/mnt/raspios-root/etc/udev/rules.d/$rule" ] && \
             sudo cp "/mnt/raspios-root/etc/udev/rules.d/$rule" work/udev-rules/
           [ -f "/mnt/raspios-root/lib/udev/rules.d/$rule" ] && \
@@ -417,9 +433,30 @@ jobs:
         echo "Installing kernel modules..."
         sudo cp -a work/modules/* /mnt/root/lib/modules/
         
+        # Clean up any non-module files that might have been copied
+        echo "Cleaning module directories..."
+        find /mnt/root/lib/modules -type f -name "*.bin" -o -name "*.dat" -o -name "*.txt" | \
+          while read file; do
+            echo "Removing non-module file: $file"
+            sudo rm -f "$file"
+          done
+        
         # Copy firmware from RaspberryPi OS
         echo "Installing firmware from RaspberryPi OS..."
         sudo cp -a work/firmware/* /mnt/root/lib/firmware/
+        
+        # If regulatory.db is still missing, try to get it from the host system
+        if [ ! -f /mnt/root/lib/firmware/regulatory.db ]; then
+          echo "WARNING: regulatory.db missing, trying to copy from host..."
+          if [ -f /lib/firmware/regulatory.db ]; then
+            sudo cp /lib/firmware/regulatory.* /mnt/root/lib/firmware/ 2>/dev/null || true
+          fi
+        fi
+        
+        # Verify regulatory files
+        echo "Regulatory database files:"
+        ls -la /mnt/root/lib/firmware/regulatory.* 2>/dev/null || echo "No regulatory files found!"
+        
         echo "Firmware files count: $(find /mnt/root/lib/firmware -type f | wc -l)"
         
         # Copy module configuration files
@@ -451,15 +488,15 @@ jobs:
         options brcmfmac feature_disable=0x82000
         EOF
         
+        # Also set regulatory domain
+        sudo tee /mnt/root/etc/modprobe.d/cfg80211.conf << 'EOF'
+        # Set regulatory domain
+        options cfg80211 ieee80211_regdom=GB
+        EOF
+        
         # Copy udev rules
         echo "Installing udev rules..."
         sudo cp work/udev-rules/* /mnt/root/etc/udev/rules.d/ 2>/dev/null || true
-        
-        # Add udev rule for Broadcom WiFi firmware loading
-        sudo tee /mnt/root/etc/udev/rules.d/90-raspi-wifi.rules << 'EOF'
-        # Load firmware for Broadcom WiFi
-        ACTION=="add", SUBSYSTEM=="firmware", RUN+="/bin/true"
-        EOF
         
         # Copy /boot files to ROOT partition (not the boot partition!)
         echo "Installing /boot files to root filesystem..."
