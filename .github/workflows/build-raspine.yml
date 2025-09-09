@@ -73,7 +73,7 @@ jobs:
         cd cache/raspios
         
         # Get the latest Raspberry Pi OS Lite image directory
-        echo "Fetching directory listing..."
+        echo "Finding latest Raspberry Pi OS image..."
         RASPIOS_DIR=$(curl -s https://downloads.raspberrypi.org/raspios_lite_armhf/images/ | \
           grep -oE 'raspios_lite_armhf-[0-9]{4}-[0-9]{2}-[0-9]{2}/' | \
           sort -V | \
@@ -85,7 +85,6 @@ jobs:
         fi
         
         LATEST_DIR="https://downloads.raspberrypi.org/raspios_lite_armhf/images/${RASPIOS_DIR}"
-        echo "Latest directory: ${LATEST_DIR}"
         
         # Find the actual image file in that directory
         IMAGE_FILE=$(curl -s "${LATEST_DIR}" | \
@@ -97,14 +96,15 @@ jobs:
           exit 1
         fi
         
-        echo "Downloading ${IMAGE_FILE}..."
-        wget -q --show-progress "${LATEST_DIR}${IMAGE_FILE}"
+        echo "Downloading Raspberry Pi OS (${IMAGE_FILE})..."
+        wget -q "${LATEST_DIR}${IMAGE_FILE}"
         
         echo "Extracting image..."
-        xz -d "${IMAGE_FILE}"
+        xz -d -q "${IMAGE_FILE}"
         
         # Rename to standard name
         mv *.img raspios-lite.img
+        echo "Raspberry Pi OS image ready"
 
     - name: Extract Raspberry Pi OS components
       run: |
@@ -187,20 +187,101 @@ jobs:
         sudo mount /dev/loop0p1 /mnt/boot
         sudo mount /dev/loop0p2 /mnt/root
 
-    - name: Install Alpine Linux rootfs
       run: |
-        # Download Alpine mini root filesystem
         ALPINE_MIRROR="https://dl-cdn.alpinelinux.org/alpine/v${ALPINE_VERSION%.*}"
-        ALPINE_ROOTFS="alpine-minirootfs-3.22.1-${ALPINE_ARCH}.tar.gz"
         
-        wget -q "${ALPINE_MIRROR}/releases/${ALPINE_ARCH}/${ALPINE_ROOTFS}"
+        echo "Searching for Alpine rootfs files..."
+        
+        # Get the actual filename from the directory listing
+        ALPINE_FILE=$(curl -s "${ALPINE_MIRROR}/releases/${ALPINE_ARCH}/" | \
+                      grep -o 'href="alpine-minirootfs-[^"]*armhf\.tar\.gz"' | \
+                      sed 's/href="//;s/"//' | \
+                      grep "^alpine-minirootfs-${ALPINE_VERSION}" | \
+                      head -1)
+        
+        if [ -z "$ALPINE_FILE" ]; then
+          echo "ERROR: Could not find Alpine minirootfs for ${ALPINE_VERSION}"
+          echo "Available files:"
+          curl -s "${ALPINE_MIRROR}/releases/${ALPINE_ARCH}/" | grep -o 'alpine-minirootfs-[^"]*\.tar\.gz'
+          exit 1
+        fi
+        
+        echo "Found Alpine rootfs: ${ALPINE_FILE}"
+        FULL_URL="${ALPINE_MIRROR}/releases/${ALPINE_ARCH}/${ALPINE_FILE}"
+        echo "Downloading from: ${FULL_URL}"
+        
+        # Download with curl (more reliable than wget sometimes)
+        curl -L -o "${ALPINE_FILE}" "${FULL_URL}" || {
+          echo "Download failed with curl, trying wget..."
+          wget -O "${ALPINE_FILE}" "${FULL_URL}" || exit 1
+        }
+        
+        # Verify download
+        if [ ! -f "${ALPINE_FILE}" ]; then
+          echo "ERROR: Download failed - file not found"
+          exit 1
+        fi
+        
+        FILE_SIZE=$(du -h "${ALPINE_FILE}" | cut -f1)
+        echo "Downloaded successfully: ${ALPINE_FILE} (${FILE_SIZE})"
         
         # Extract Alpine rootfs
-        echo "Extracting Alpine rootfs..."
-        sudo tar -xzf "${ALPINE_ROOTFS}" -C /mnt/root/
+        echo "Extracting Alpine rootfs to /mnt/root/..."
+        sudo tar -xzf "${ALPINE_FILE}" -C /mnt/root/
         
         # Copy QEMU static binary for chroot
+        echo "Setting up QEMU for ARM emulation..."
         sudo cp /usr/bin/qemu-arm-static /mnt/root/usr/bin/
+        
+        echo "✓ Alpine rootfs installation complete"
+    - name: Install Alpine Linux rootfs
+      run: |
+        ALPINE_MIRROR="https://dl-cdn.alpinelinux.org/alpine/v${ALPINE_VERSION%.*}"
+        
+        echo "Searching for Alpine rootfs files..."
+        
+        # Get the actual filename from the directory listing
+        ALPINE_FILE=$(curl -s "${ALPINE_MIRROR}/releases/${ALPINE_ARCH}/" | \
+                      grep -o 'href="alpine-minirootfs-[^"]*armhf\.tar\.gz"' | \
+                      sed 's/href="//;s/"//' | \
+                      grep "^alpine-minirootfs-${ALPINE_VERSION}" | \
+                      head -1)
+        
+        if [ -z "$ALPINE_FILE" ]; then
+          echo "ERROR: Could not find Alpine minirootfs for ${ALPINE_VERSION}"
+          echo "Available files:"
+          curl -s "${ALPINE_MIRROR}/releases/${ALPINE_ARCH}/" | grep -o 'alpine-minirootfs-[^"]*\.tar\.gz'
+          exit 1
+        fi
+        
+        echo "Found Alpine rootfs: ${ALPINE_FILE}"
+        FULL_URL="${ALPINE_MIRROR}/releases/${ALPINE_ARCH}/${ALPINE_FILE}"
+        echo "Downloading from: ${FULL_URL}"
+        
+        # Download with curl (more reliable than wget sometimes)
+        curl -L -o "${ALPINE_FILE}" "${FULL_URL}" || {
+          echo "Download failed with curl, trying wget..."
+          wget -O "${ALPINE_FILE}" "${FULL_URL}" || exit 1
+        }
+        
+        # Verify download
+        if [ ! -f "${ALPINE_FILE}" ]; then
+          echo "ERROR: Download failed - file not found"
+          exit 1
+        fi
+        
+        FILE_SIZE=$(du -h "${ALPINE_FILE}" | cut -f1)
+        echo "Downloaded successfully: ${ALPINE_FILE} (${FILE_SIZE})"
+        
+        # Extract Alpine rootfs
+        echo "Extracting Alpine rootfs to /mnt/root/..."
+        sudo tar -xzf "${ALPINE_FILE}" -C /mnt/root/
+        
+        # Copy QEMU static binary for chroot
+        echo "Setting up QEMU for ARM emulation..."
+        sudo cp /usr/bin/qemu-arm-static /mnt/root/usr/bin/
+        
+        echo "✓ Alpine rootfs installation complete"
 
     - name: Configure Alpine base system
       run: |
