@@ -334,7 +334,6 @@ jobs:
         rc-update add hostname boot
         rc-update add bootmisc boot
         rc-update add syslog boot
-        rc-update add networking boot
         rc-update add dropbear default
         rc-update add wpa_supplicant boot
         rc-update add dhcpcd boot
@@ -471,20 +470,18 @@ jobs:
         EOF
         sudo chmod +x /mnt/root/usr/lib/dhcpcd/dhcpcd-hooks/30-time-sync
         
-        # Network interfaces configuration (simplified for dhcpcd)
+        # Network interfaces configuration - minimal, dhcpcd handles DHCP
         sudo tee /mnt/root/etc/network/interfaces << 'EOF'
         auto lo
         iface lo inet loopback
         
-        # Ethernet - dhcpcd will handle this automatically
+        # Ethernet - managed by dhcpcd
         allow-hotplug eth0
         iface eth0 inet manual
         
-        # Wireless - dhcpcd will handle DHCP after wpa_supplicant connects
+        # Wireless - managed by dhcpcd after wpa_supplicant connects
         allow-hotplug wlan0
         iface wlan0 inet manual
-          pre-up wpa_supplicant -B -D nl80211 -i wlan0 -c /etc/wpa_supplicant/wpa_supplicant.conf
-          post-down killall -q wpa_supplicant
         EOF
         
         # Create wpa_supplicant configuration
@@ -495,42 +492,8 @@ jobs:
         update_config=1
         country=GB
         
-        # Add your network configuration here
-        # network={
-        #     ssid="YourNetworkSSID"
-        #     psk="YourNetworkPassword"
-        # }
+        # Networks will be added by raspine-config at boot
         EOF
-        
-        # Create a WiFi setup helper that works with dhcpcd
-        sudo tee /mnt/root/usr/local/bin/wifi-setup << 'EOF'
-        #!/bin/sh
-        # WiFi setup helper for RasPINE
-        
-        if [ "$#" -ne 2 ]; then
-            echo "Usage: wifi-setup <SSID> <PASSWORD>"
-            echo "Example: wifi-setup MyNetwork MyPassword"
-            exit 1
-        fi
-        
-        SSID="$1"
-        PSK="$2"
-        
-        # Add network to wpa_supplicant.conf
-        wpa_passphrase "$SSID" "$PSK" >> /etc/wpa_supplicant/wpa_supplicant.conf
-        
-        echo "WiFi network added. Restarting services..."
-        
-        # Restart wpa_supplicant
-        rc-service wpa_supplicant restart
-        
-        # dhcpcd should automatically detect the new connection
-        sleep 2
-        
-        echo "Done! Check connection with: ip addr show wlan0"
-        EOF
-        
-        sudo chmod +x /mnt/root/usr/local/bin/wifi-setup
         
         echo "✓ Networking configured with dhcpcd and time sync"
 
@@ -550,7 +513,12 @@ jobs:
         
         # Copy firmware from RaspberryPi OS
         echo "Installing firmware from RaspberryPi OS..."
-        sudo cp -a work/firmware/* /mnt/root/lib/firmware/
+        if [ -d work/firmware ] && [ "$(ls -A work/firmware)" ]; then
+            sudo cp -a work/firmware/* /mnt/root/lib/firmware/
+        else
+            echo "ERROR: No firmware files found!"
+            exit 1
+        fi
         
         # If regulatory.db is still missing, try to get it from the host system
         if [ ! -f /mnt/root/lib/firmware/regulatory.db ]; then
@@ -591,12 +559,6 @@ jobs:
         brcmutil
         cfg80211
         rfkill
-        # For older Pi models with different WiFi
-        bcm2835_v4l2
-        # For Bluetooth (often on same chip)
-        hci_uart
-        btbcm
-        bluetooth
         EOF
         
         # Create modprobe configuration for brcmfmac
@@ -922,83 +884,6 @@ jobs:
         EOF
         
         echo "✓ Boot configuration system created"
-
-    - name: Create SSL certificate fix service
-      run: |
-        # Create a first-boot SSL fix service
-        sudo tee /mnt/root/etc/init.d/ssl-fix << 'EOF'
-        #!/sbin/openrc-run
-        
-        description="Fix SSL certificates on first boot"
-        
-        depend() {
-            need localmount
-            after hwclock
-            before networking
-        }
-        
-        start() {
-            ebegin "Updating CA certificates"
-            
-            # Update certificates
-            /usr/sbin/update-ca-certificates 2>/dev/null || true
-            
-            # Ensure /etc/ssl/certs is populated
-            if [ ! -d /etc/ssl/certs ] || [ -z "$(ls -A /etc/ssl/certs 2>/dev/null)" ]; then
-                mkdir -p /etc/ssl/certs
-                # Link ca-certificates
-                ln -sf /usr/share/ca-certificates/mozilla/* /etc/ssl/certs/ 2>/dev/null || true
-            fi
-            
-            # Fix permissions
-            chmod 755 /etc/ssl /etc/ssl/certs 2>/dev/null || true
-            
-            # Create cert bundle if missing
-            if [ ! -f /etc/ssl/certs/ca-certificates.crt ]; then
-                cat /usr/share/ca-certificates/mozilla/*.crt > /etc/ssl/certs/ca-certificates.crt 2>/dev/null || true
-            fi
-            
-            eend 0
-        }
-        EOF
-        sudo chmod +x /mnt/root/etc/init.d/ssl-fix
-        
-        # Add to boot runlevel
-        sudo ln -s /etc/init.d/ssl-fix /mnt/root/etc/runlevels/boot/ssl-fix
-        
-        # Also create a manual fix script users can run
-        sudo tee /mnt/root/usr/local/bin/fix-ssl << 'EOF'
-        #!/bin/sh
-        # Manual SSL/TLS certificate fix for RasPINE
-        
-        echo "Fixing SSL/TLS certificates..."
-        
-        # Update certificates
-        update-ca-certificates
-        
-        # Ensure cert directories exist
-        mkdir -p /etc/ssl/certs
-        
-        # Create bundle if needed
-        if [ ! -f /etc/ssl/certs/ca-certificates.crt ]; then
-            echo "Creating certificate bundle..."
-            cat /usr/share/ca-certificates/mozilla/*.crt > /etc/ssl/certs/ca-certificates.crt
-        fi
-        
-        # Test with apk
-        echo "Testing SSL with apk update..."
-        apk update
-        
-        if [ $? -eq 0 ]; then
-            echo "✓ SSL/TLS certificates fixed successfully!"
-        else
-            echo "⚠ SSL issues may persist. Check your network and time settings."
-            echo "Current time: $(date)"
-        fi
-        EOF
-        sudo chmod +x /mnt/root/usr/local/bin/fix-ssl
-        
-        echo "✓ SSL certificate fix service created"
 
     - name: Create system information file
       run: |
