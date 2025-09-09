@@ -409,9 +409,10 @@ jobs:
         echo "Installing kernel modules..."
         sudo cp -a work/modules/* /mnt/root/lib/modules/
         
-        # Copy firmware
-        echo "Installing firmware..."
+        # Copy firmware from RaspberryPi OS
+        echo "Installing firmware from RaspberryPi OS..."
         sudo cp -a work/firmware/* /mnt/root/lib/firmware/
+        echo "Firmware files count: $(find /mnt/root/lib/firmware -type f | wc -l)"
         
         # Copy module configuration files
         echo "Installing module configuration..."
@@ -428,6 +429,11 @@ jobs:
         if [ -d work/boot-root ] && [ "$(ls -A work/boot-root)" ]; then
           sudo cp -a work/boot-root/* /mnt/root/boot/
         fi
+        
+        # Create symlinks in /boot pointing to /boot/firmware
+        echo "Creating symlinks for cmdline.txt and config.txt..."
+        sudo ln -sf /boot/firmware/cmdline.txt /mnt/root/boot/cmdline.txt
+        sudo ln -sf /boot/firmware/config.txt /mnt/root/boot/config.txt
         
         # Create fstab
         sudo tee /mnt/root/etc/fstab << 'EOF'
@@ -473,6 +479,10 @@ jobs:
         else
           echo "WARNING: config.txt not found!"
         fi
+        
+        # Verify the symlinks were created correctly
+        echo "Verifying boot symlinks:"
+        ls -la /mnt/root/boot/cmdline.txt /mnt/root/boot/config.txt
         
         echo "✓ Raspberry Pi OS components integrated"
 
