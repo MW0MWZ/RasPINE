@@ -284,25 +284,18 @@ jobs:
         echo "Updating package index..."
         apk update
         
-        # Install essential packages
-        echo "Installing packages..."
+        # Install ONLY the bare minimum to boot
+        echo "Installing minimal packages..."
         apk add --no-cache \
           alpine-base \
           openrc \
           util-linux \
           e2fsprogs \
-          udhcpc \
           dropbear \
-          wpa_supplicant \
-          libc6-compat \
-          busybox-initscripts \
-          network-extras \
-          rfkill \
-          wireless-tools \
-          iw
+          libc6-compat
         
-        # Set up services
-        echo "Configuring services..."
+        # Set up only essential services
+        echo "Configuring essential services..."
         rc-update add devfs sysinit
         rc-update add dmesg sysinit
         rc-update add hwclock boot
@@ -313,7 +306,6 @@ jobs:
         rc-update add syslog boot
         rc-update add networking boot
         rc-update add dropbear default
-        rc-update add wpa_supplicant default || true
         
         # Configure hostname
         echo "raspine" > /etc/hostname
@@ -328,6 +320,7 @@ jobs:
         echo 'root:raspberry' | chpasswd
         
         # Allow root SSH login (for initial setup)
+        mkdir -p /etc/conf.d
         echo "DROPBEAR_OPTS=\"-B\"" > /etc/conf.d/dropbear
         
         # Disable predictable network interface names
