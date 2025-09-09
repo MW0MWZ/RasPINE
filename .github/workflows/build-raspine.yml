@@ -290,18 +290,21 @@ jobs:
         echo "Updating package index..."
         apk update
         
-        # Install ONLY the bare minimum to boot
-        echo "Installing minimal packages..."
+        # Install base packages plus WiFi support
+        echo "Installing packages..."
         apk add --no-cache \
           alpine-base \
           openrc \
           util-linux \
           e2fsprogs \
           dropbear \
-          libc6-compat
+          libc6-compat \
+          wpa_supplicant \
+          wireless-tools \
+          iw
         
-        # Set up only essential services
-        echo "Configuring essential services..."
+        # Set up essential services
+        echo "Configuring services..."
         rc-update add devfs sysinit
         rc-update add dmesg sysinit
         rc-update add hwclock boot
@@ -312,6 +315,7 @@ jobs:
         rc-update add syslog boot
         rc-update add networking boot
         rc-update add dropbear default
+        rc-update add wpa_supplicant boot
         
         # Configure hostname
         echo "raspine" > /etc/hostname
@@ -329,6 +333,9 @@ jobs:
         mkdir -p /etc/conf.d
         echo "DROPBEAR_OPTS=\"-B\"" > /etc/conf.d/dropbear
         
+        # Configure wpa_supplicant service to not fail if no config
+        echo 'wpa_supplicant_args="-q"' > /etc/conf.d/wpa_supplicant
+        
         # Disable predictable network interface names
         mkdir -p /etc/udev/rules.d
         ln -s /dev/null /etc/udev/rules.d/80-net-setup-link.rules
@@ -338,6 +345,7 @@ jobs:
         mkdir -p /lib/modules
         mkdir -p /lib/firmware
         mkdir -p /var/log
+        mkdir -p /usr/local/bin
         
         echo "Alpine configuration complete!"
         EOF
@@ -355,7 +363,7 @@ jobs:
         sudo umount /mnt/root/sys
         sudo umount /mnt/root/proc
         
-        echo "✓ Alpine base system configured"
+        echo "✓ Alpine base system configured with WiFi support"
 
     - name: Configure networking
       run: |
@@ -486,6 +494,67 @@ jobs:
         
         echo "✓ Raspberry Pi OS components integrated"
 
+    - name: Configure networking
+      run: |
+        # Network configuration with hotplug for eth0 and WiFi support
+        sudo tee /mnt/root/etc/network/interfaces << 'EOF'
+        auto lo
+        iface lo inet loopback
+        
+        # Ethernet - only configure if present
+        allow-hotplug eth0
+        iface eth0 inet dhcp
+        
+        # Wireless - only configure if present
+        allow-hotplug wlan0
+        iface wlan0 inet dhcp
+          pre-up wpa_supplicant -B -D nl80211 -i wlan0 -c /etc/wpa_supplicant/wpa_supplicant.conf
+          post-down killall -q wpa_supplicant
+        EOF
+        
+        # Create wpa_supplicant configuration
+        sudo mkdir -p /mnt/root/etc/wpa_supplicant
+        sudo tee /mnt/root/etc/wpa_supplicant/wpa_supplicant.conf << 'EOF'
+        ctrl_interface=/var/run/wpa_supplicant
+        ctrl_interface_group=0
+        update_config=1
+        country=GB
+        
+        # Add your network configuration here
+        # network={
+        #     ssid="YourNetworkSSID"
+        #     psk="YourNetworkPassword"
+        # }
+        EOF
+        
+        # Create a simple WiFi configuration helper script
+        sudo tee /mnt/root/usr/local/bin/wifi-setup << 'EOF'
+        #!/bin/sh
+        # Simple WiFi setup helper for RasPINE
+        
+        if [ "$#" -ne 2 ]; then
+            echo "Usage: wifi-setup <SSID> <PASSWORD>"
+            echo "Example: wifi-setup MyNetwork MyPassword"
+            exit 1
+        fi
+        
+        SSID="$1"
+        PSK="$2"
+        
+        # Add network to wpa_supplicant.conf
+        wpa_passphrase "$SSID" "$PSK" >> /etc/wpa_supplicant/wpa_supplicant.conf
+        
+        echo "WiFi network added. Restarting interface..."
+        ifdown wlan0 2>/dev/null
+        ifup wlan0
+        
+        echo "Done! Check connection with: ip addr show wlan0"
+        EOF
+        
+        sudo chmod +x /mnt/root/usr/local/bin/wifi-setup
+        
+        echo "✓ Networking configured with hotplug and WiFi support"
+    
     - name: Create system information file
       run: |
         sudo tee /mnt/root/etc/raspine-release << EOF
