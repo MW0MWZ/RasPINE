@@ -400,23 +400,63 @@ jobs:
 
     - name: Configure networking
       run: |
-        # Network configuration with proper DHCP for both interfaces
+        # Create dhcpcd configuration
+        sudo tee /mnt/root/etc/dhcpcd.conf << 'EOF'
+        # RasPINE dhcpcd configuration
+        
+        # Inform the DHCP server of our hostname for DDNS
+        hostname
+        
+        # Use the hardware address of the interface for the Client ID
+        clientid
+        
+        # Persist interface configuration when dhcpcd exits
+        persistent
+        
+        # Rapid commit support
+        option rapid_commit
+        
+        # A list of options to request from the DHCP server
+        option domain_name_servers, domain_name, domain_search, host_name
+        option classless_static_routes
+        option interface_mtu
+        
+        # Respect the network MTU
+        option interface_mtu
+        
+        # A ServerID is required by RFC2131
+        require dhcp_server_identifier
+        
+        # Generate SLAAC address using the Hardware Address of the interface
+        slaac hwaddr
+        
+        # OR generate Stable Private IPv6 Addresses based on the DUID
+        #slaac private
+        
+        # Don't attempt to configure if carrier is not present
+        nocarrier
+        
+        # Wait for carrier before forking to background
+        waitip 4
+        
+        # Don't touch wpa_supplicant (we manage it separately)
+        nohook wpa_supplicant
+        EOF
+        
+        # Network interfaces configuration (simplified for dhcpcd)
         sudo tee /mnt/root/etc/network/interfaces << 'EOF'
         auto lo
         iface lo inet loopback
         
-        # Ethernet - only configure if present
+        # Ethernet - dhcpcd will handle this automatically
         allow-hotplug eth0
-        iface eth0 inet dhcp
+        iface eth0 inet manual
         
-        # Wireless - only configure if present
+        # Wireless - dhcpcd will handle DHCP after wpa_supplicant connects
         allow-hotplug wlan0
-        iface wlan0 inet dhcp
+        iface wlan0 inet manual
           pre-up wpa_supplicant -B -D nl80211 -i wlan0 -c /etc/wpa_supplicant/wpa_supplicant.conf
-          pre-up sleep 2
-          post-up udhcpc -i wlan0 -b
           post-down killall -q wpa_supplicant
-          post-down killall -q udhcpc
         EOF
         
         # Create wpa_supplicant configuration
@@ -434,56 +474,37 @@ jobs:
         # }
         EOF
         
-        # Create a proper udhcpc script
-        sudo mkdir -p /mnt/root/usr/share/udhcpc
-        sudo tee /mnt/root/usr/share/udhcpc/default.script << 'EOF'
+        # Create a WiFi setup helper that works with dhcpcd
+        sudo tee /mnt/root/usr/local/bin/wifi-setup << 'EOF'
         #!/bin/sh
-        # DHCP handler script for busybox udhcpc
+        # WiFi setup helper for RasPINE
         
-        [ -z "$1" ] && exit 1
+        if [ "$#" -ne 2 ]; then
+            echo "Usage: wifi-setup <SSID> <PASSWORD>"
+            echo "Example: wifi-setup MyNetwork MyPassword"
+            exit 1
+        fi
         
-        RESOLV_CONF="/etc/resolv.conf"
+        SSID="$1"
+        PSK="$2"
         
-        case "$1" in
-          deconfig)
-            # Clear IP configuration
-            ip -4 addr flush dev $interface
-            ip link set $interface up
-            ;;
-            
-          bound|renew)
-            # Set IP address
-            ip addr add ${ip}/${mask:-24} brd ${broadcast:-+} dev $interface
-            
-            # Remove any existing default routes for this interface
-            while ip route del default dev $interface 2>/dev/null; do :; done
-            
-            # Set default route if we have one
-            if [ -n "$router" ]; then
-              for r in $router; do
-                ip route add default via $r dev $interface
-                break  # Only use first router
-              done
-            fi
-            
-            # Update DNS
-            if [ -n "$dns" ]; then
-              > $RESOLV_CONF.new
-              [ -n "$domain" ] && echo "domain $domain" >> $RESOLV_CONF.new
-              for d in $dns; do
-                echo "nameserver $d" >> $RESOLV_CONF.new
-              done
-              mv $RESOLV_CONF.new $RESOLV_CONF
-            fi
-            ;;
-        esac
+        # Add network to wpa_supplicant.conf
+        wpa_passphrase "$SSID" "$PSK" >> /etc/wpa_supplicant/wpa_supplicant.conf
         
-        exit 0
+        echo "WiFi network added. Restarting services..."
+        
+        # Restart wpa_supplicant
+        rc-service wpa_supplicant restart
+        
+        # dhcpcd should automatically detect the new connection
+        sleep 2
+        
+        echo "Done! Check connection with: ip addr show wlan0"
         EOF
         
-        sudo chmod +x /mnt/root/usr/share/udhcpc/default.script
+        sudo chmod +x /mnt/root/usr/local/bin/wifi-setup
         
-        echo "✓ Networking configured with proper DHCP support"
+        echo "✓ Networking configured with dhcpcd"
 
     - name: Integrate Raspberry Pi OS components
       run: |
@@ -775,12 +796,10 @@ jobs:
             fi
         done
         
-        # Restart services if needed
+        # Don't restart services - they haven't started yet!
+        # The services will start after this script completes
         if [ -n "$WIFI_SSID_1" ]; then
-            log "Restarting WiFi..."
-            rc-service wpa_supplicant restart || true
-            ifdown wlan0 2>/dev/null || true
-            ifup wlan0 || true
+            log "WiFi networks configured - will connect on service start"
         fi
         
         # Mark as configured
@@ -790,8 +809,8 @@ jobs:
         mv "$CONFIG_FILE" "${CONFIG_FILE}.processed"
         log "Configuration complete! File renamed to raspine-config.txt.processed"
         
-        # Restart SSH if configuration changed
-        rc-service dropbear restart
+        # Don't restart SSH here either - let it start normally
+        log "Services will start after configuration completes"
         
         EOF
         sudo chmod +x /mnt/root/usr/local/bin/raspine-config
