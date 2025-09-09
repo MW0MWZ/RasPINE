@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RasPINE - Raspberry Pi + Alpine Linux Hybrid</title>
+    <meta name="description" content="RasPINE combines Raspberry Pi OS kernel with Alpine Linux userland for a minimal, efficient OS">
+    <style>
+        :root {
+            --primary: #0051a2;
+            --secondary: #1e88e5;
+            --success: #4caf50;
+            --dark: #212529;
+            --light: #f8f9fa;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: var(--dark);
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+        
+        header {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            padding: 2rem 0;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .header-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        
+        h1 {
+            color: var(--primary);
+            font-size: 2.5rem;
+            font-weight: 700;
+        }
+        
+        .tagline {
+            color: #666;
+            font-size: 1.1rem;
+            margin-top: 0.5rem;
+        }
+        
+        .stats {
+            display: flex;
+            gap: 2rem;
+            margin-top: 1rem;
+        }
+        
+        .stat {
+            text-align: center;
+        }
+        
+        .stat-value {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: var(--primary);
+        }
+        
+        .stat-label {
+            font-size: 0.9rem;
+            color: #666;
+        }
+        
+        main {
+            background: white;
+            margin: 2rem auto;
+            border-radius: 10px;
+            padding: 3rem;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+        
+        .download-section {
+            background: var(--light);
+            border-radius: 8px;
+            padding: 2rem;
+            margin-bottom: 3rem;
+            text-align: center;
+        }
+        
+        .download-btn {
+            display: inline-block;
+            background: var(--success);
+            color: white;
+            padding: 1rem 2rem;
+            border-radius: 5px;
+            text-decoration: none;
+            font-size: 1.2rem;
+            font-weight: bold;
+            transition: transform 0.2s, box-shadow 0.2s;
+            margin: 1rem 0.5rem;
+        }
+        
+        .download-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(76, 175, 80, 0.3);
+        }
+        
+        .download-btn.secondary {
+            background: var(--secondary);
+        }
+        
+        .download-info {
+            margin-top: 1rem;
+            font-size: 0.9rem;
+            color: #666;
+        }
+        
+        .features {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 2rem;
+            margin: 2rem 0;
+        }
+        
+        .feature {
+            padding: 1.5rem;
+            background: var(--light);
+            border-radius: 8px;
+            border-left: 4px solid var(--primary);
+        }
+        
+        .feature h3 {
+            color: var(--primary);
+            margin-bottom: 0.5rem;
+        }
+        
+        .section {
+            margin: 3rem 0;
+        }
+        
+        .section h2 {
+            color: var(--primary);
+            border-bottom: 2px solid var(--primary);
+            padding-bottom: 0.5rem;
+            margin-bottom: 1.5rem;
+        }
+        
+        code {
+            background: #f4f4f4;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+        }
+        
+        pre {
+            background: #f4f4f4;
+            padding: 1rem;
+            border-radius: 5px;
+            overflow-x: auto;
+            margin: 1rem 0;
+        }
+        
+        .compatibility {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1rem;
+            margin: 1rem 0;
+        }
+        
+        .pi-model {
+            background: var(--light);
+            padding: 0.5rem 1rem;
+            border-radius: 20px;
+            border: 2px solid var(--primary);
+        }
+        
+        footer {
+            text-align: center;
+            padding: 2rem;
+            color: white;
+        }
+        
+        footer a {
+            color: white;
+            text-decoration: underline;
+        }
+        
+        @media (max-width: 768px) {
+            h1 {
+                font-size: 2rem;
+            }
+            
+            .header-content {
+                text-align: center;
+            }
+            
+            .stats {
+                justify-content: center;
+            }
+            
+            main {
+                padding: 2rem 1rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <div class="header-content">
+                <div>
+                    <h1>🍓🏔️ RasPINE</h1>
+                    <p class="tagline">Raspberry Pi OS Kernel + Alpine Linux Userland</p>
+                </div>
+                <div class="stats">
+                    <div class="stat">
+                        <div class="stat-value" id="version">v3.22</div>
+                        <div class="stat-label">Alpine Version</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-value" id="size">~300MB</div>
+                        <div class="stat-label">Download Size</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-value" id="latest-date">Loading...</div>
+                        <div class="stat-label">Latest Build</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="container">
+        <div class="download-section">
+            <h2>Download RasPINE</h2>
+            <p>Get the latest hybrid OS image for your Raspberry Pi</p>
+            <div>
+                <a href="/downloads/RasPINE-latest.img.xz" class="download-btn" id="download-latest">
+                    📥 Download Latest Image
+                </a>
+                <a href="https://github.com/MW0MWZ/RasPINE/releases" class="download-btn secondary">
+                    📋 View All Releases
+                </a>
+            </div>
+            <div class="download-info">
+                <p id="download-details">Loading latest build information...</p>
+                <p><a href="/downloads/RasPINE-latest.img.xz.sha256">SHA256 Checksum</a> | 
+                   <a href="/downloads/RasPINE-latest.info.txt">Build Info</a></p>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>✨ Features</h2>
+            <div class="features">
+                <div class="feature">
+                    <h3>🔧 Maximum Compatibility</h3>
+                    <p>Uses official Raspberry Pi OS kernel and firmware for perfect hardware support</p>
+                </div>
+                <div class="feature">
+                    <h3>🪶 Minimal Footprint</h3>
+                    <p>Alpine Linux userland with musl libc - fits on a 2GB SD card</p>
+                </div>
+                <div class="feature">
+                    <h3>🔒 Secure by Default</h3>
+                    <p>SSH enabled with Dropbear, minimal attack surface</p>
+                </div>
+                <div class="feature">
+                    <h3>📦 Modern Package Management</h3>
+                    <p>Alpine's apk package manager with vast repository access</p>
+                </div>
+                <div class="feature">
+                    <h3>🌐 Network Ready</h3>
+                    <p>DHCP on ethernet, WiFi support with wpa_supplicant</p>
+                </div>
+                <div class="feature">
+                    <h3>💾 SD Card Friendly</h3>
+                    <p>/var/log on tmpfs to reduce wear on your SD card</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>🥧 Compatible Raspberry Pi Models</h2>
+            <div class="compatibility">
+                <span class="pi-model">Pi 1 Model A/B/B+</span>
+                <span class="pi-model">Pi Zero/Zero W</span>
+                <span class="pi-model">Pi 2 Model B</span>
+                <span class="pi-model">Pi 3 Model A+/B/B+</span>
+                <span class="pi-model">Pi 4 Model B</span>
+                <span class="pi-model">Pi 400</span>
+                <span class="pi-model">Pi Zero 2 W</span>
+                <span class="pi-model">Compute Module 1/3/3+/4</span>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>🚀 Quick Start</h2>
+            <ol>
+                <li><strong>Download</strong> the latest image from above</li>
+                <li><strong>Extract</strong> the image:
+                    <pre><code>xz -d RasPINE-*.img.xz</code></pre>
+                </li>
+                <li><strong>Write</strong> to SD card:
+                    <pre><code>sudo dd if=RasPINE-*.img of=/dev/sdX bs=4M status=progress</code></pre>
+                </li>
+                <li><strong>Boot</strong> your Raspberry Pi</li>
+                <li><strong>Login</strong> via SSH or console:
+                    <ul>
+                        <li>Username: <code>root</code></li>
+                        <li>Password: <code>raspberry</code></li>
+                    </ul>
+                </li>
+                <li><strong>Change password</strong> immediately: <code>passwd</code></li>
+            </ol>
+        </div>
+
+        <div class="section">
+            <h2>📊 Technical Details</h2>
+            <table style="width: 100%; border-collapse: collapse;">
+                <tr>
+                    <td style="padding: 0.5rem; border-bottom: 1px solid #ddd;"><strong>Kernel</strong></td>
+                    <td style="padding: 0.5rem; border-bottom: 1px solid #ddd;">Latest Raspberry Pi OS (all variants)</td>
+                </tr>
+                <tr>
+                    <td style="padding: 0.5rem; border-bottom: 1px solid #ddd;"><strong>Userland</strong></td>
+                    <td style="padding: 0.5rem; border-bottom: 1px solid #ddd;">Alpine Linux 3.22 (armv6/armhf)</td>
+                </tr>
+                <tr>
+                    <td style="padding: 0.5rem; border-bottom: 1px solid #ddd;"><strong>Init System</strong></td>
+                    <td style="padding: 0.5rem; border-bottom: 1px solid #ddd;">OpenRC</td>
+                </tr>
+                <tr>
+                    <td style="padding: 0.5rem; border-bottom: 1px solid #ddd;"><strong>C Library</strong></td>
+                    <td style="padding: 0.5rem; border-bottom: 1px solid #ddd;">musl libc (with glibc compat layer)</td>
+                </tr>
+                <tr>
+                    <td style="padding: 0.5rem; border-bottom: 1px solid #ddd;"><strong>Package Manager</strong></td>
+                    <td style="padding: 0.5rem; border-bottom: 1px solid #ddd;">apk</td>
+                </tr>
+                <tr>
+                    <td style="padding: 0.5rem; border-bottom: 1px solid #ddd;"><strong>SSH Server</strong></td>
+                    <td style="padding: 0.5rem; border-bottom: 1px solid #ddd;">Dropbear</td>
+                </tr>
+                <tr>
+                    <td style="padding: 0.5rem; border-bottom: 1px solid #ddd;"><strong>Image Size</strong></td>
+                    <td style="padding: 0.5rem; border-bottom: 1px solid #ddd;">2GB uncompressed, ~300MB compressed</td>
+                </tr>
+            </table>
+        </div>
+
+        <div class="section">
+            <h2>🔗 Links</h2>
+            <ul>
+                <li><a href="https://github.com/MW0MWZ/RasPINE">GitHub Repository</a></li>
+                <li><a href="https://github.com/MW0MWZ/RasPINE/issues">Report Issues</a></li>
+                <li><a href="https://github.com/MW0MWZ/RasPINE/releases">All Releases</a></li>
+                <li><a href="https://www.alpinelinux.org/">Alpine Linux</a></li>
+                <li><a href="https://www.raspberrypi.org/">Raspberry Pi Foundation</a></li>
+            </ul>
+        </div>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>RasPINE is an open source project by <a href="https://github.com/MW0MWZ">MW0MWZ</a></p>
+            <p>Combining the best of Raspberry Pi OS and Alpine Linux</p>
+        </div>
+    </footer>
+
+    <script>
+        // Load latest build information
+        fetch('/downloads/index.json')
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('latest-date').textContent = data.latest;
+                document.getElementById('download-details').innerHTML = 
+                    `Latest build: <strong>${data.latest}</strong> | Size: <strong>${data.size}</strong> | Alpine ${data.alpine_version}`;
+                document.getElementById('version').textContent = `v${data.alpine_version}`;
+                document.getElementById('size').textContent = data.size;
+            })
+            .catch(err => {
+                console.error('Failed to load build info:', err);
+                document.getElementById('latest-date').textContent = 'Check GitHub';
+                document.getElementById('download-details').textContent = 'Latest build information unavailable';
+            });
+    </script>
+</body>
+</html>
