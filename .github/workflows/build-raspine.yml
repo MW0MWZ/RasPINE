@@ -189,7 +189,7 @@ jobs:
 
     - name: Install Alpine Linux rootfs
       run: |
-        ALPINE_MIRROR="https://dl-cdn.alpinelinux.org/alpine/v${ALPINE_VERSION%.*}"
+        ALPINE_MIRROR="https://dl-cdn.alpinelinux.org/alpine/v3.22"
         
         echo "Searching for Alpine rootfs files..."
         echo "Looking in: ${ALPINE_MIRROR}/releases/${ALPINE_ARCH}/"
