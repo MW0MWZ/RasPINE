@@ -301,7 +301,7 @@ jobs:
         echo "Updating package index..."
         apk update
         
-        # Install base packages plus WiFi support and sudo
+        # Install base packages plus WiFi support, sudo, and dhcpcd
         echo "Installing packages..."
         apk add --no-cache \
           alpine-base \
@@ -317,7 +317,8 @@ jobs:
           ca-certificates-bundle \
           openssl \
           sudo \
-          tzdata
+          tzdata \
+          dhcpcd
         
         # Update CA certificates to fix SSL/TLS issues
         echo "Updating CA certificates..."
@@ -336,6 +337,7 @@ jobs:
         rc-update add networking boot
         rc-update add dropbear default
         rc-update add wpa_supplicant boot
+        rc-update add dhcpcd boot
         
         # Configure hostname
         echo "raspine" > /etc/hostname
