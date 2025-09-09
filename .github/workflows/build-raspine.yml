@@ -452,12 +452,18 @@ jobs:
         done
         cd - > /dev/null
         
-        # Modify cmdline.txt to remove serial console
+        # Fix cmdline.txt for Alpine Linux boot
         if [ -f /mnt/boot/cmdline.txt ]; then
-          echo "Modifying cmdline.txt..."
-          sudo sed -i 's/console=serial0,[0-9]* //g' /mnt/boot/cmdline.txt
-          echo "cmdline.txt contents:"
+          echo "Fixing cmdline.txt for RasPINE..."
+          
+          # Create new cmdline.txt with proper settings
+          echo "console=tty1 root=/dev/mmcblk0p2 rootfstype=ext4 fsck.repair=yes rootwait" | sudo tee /mnt/boot/cmdline.txt
+          
+          echo "New cmdline.txt contents:"
           cat /mnt/boot/cmdline.txt
+        else
+          echo "WARNING: cmdline.txt not found! Creating one..."
+          echo "console=tty1 root=/dev/mmcblk0p2 rootfstype=ext4 fsck.repair=yes rootwait" | sudo tee /mnt/boot/cmdline.txt
         fi
         
         # Verify config.txt exists and is readable
