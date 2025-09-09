@@ -108,7 +108,7 @@ jobs:
 
     - name: Extract Raspberry Pi OS components
       run: |
-        mkdir -p work/{boot,rootfs,modules,firmware,config}
+        mkdir -p work/{boot-partition,boot-root,modules,firmware,config}
         
         echo "Setting up loop device..."
         # Set up loop device for the image
@@ -120,13 +120,19 @@ jobs:
         sudo mount /dev/loop0p1 /mnt/raspios-boot
         sudo mount /dev/loop0p2 /mnt/raspios-root
         
-        # Copy boot files
-        echo "Extracting boot files..."
-        sudo cp -a /mnt/raspios-boot/* work/boot/
+        # Copy boot PARTITION files (this is what goes on the FAT32 partition)
+        echo "Extracting boot partition files..."
+        sudo cp -a /mnt/raspios-boot/* work/boot-partition/
         
-        # Copy additional /boot files (not in boot partition)
+        # Copy /boot files from ROOT partition (these stay on the root filesystem)
+        # But skip /boot/firmware since that's a mount point
         if [ -d /mnt/raspios-root/boot ]; then
-          sudo cp -a /mnt/raspios-root/boot/* work/boot/ 2>/dev/null || true
+          echo "Extracting /boot files from root partition..."
+          for item in /mnt/raspios-root/boot/*; do
+            if [ "$(basename "$item")" != "firmware" ]; then
+              sudo cp -a "$item" work/boot-root/ 2>/dev/null || true
+            fi
+          done
         fi
         
         # Copy kernel modules (the actual module files)
@@ -416,6 +422,13 @@ jobs:
         echo "Installing udev rules..."
         sudo cp work/udev-rules/* /mnt/root/etc/udev/rules.d/ 2>/dev/null || true
         
+        # Copy /boot files to ROOT partition (not the boot partition!)
+        echo "Installing /boot files to root filesystem..."
+        sudo mkdir -p /mnt/root/boot
+        if [ -d work/boot-root ] && [ "$(ls -A work/boot-root)" ]; then
+          sudo cp -a work/boot-root/* /mnt/root/boot/
+        fi
+        
         # Create fstab
         sudo tee /mnt/root/etc/fstab << 'EOF'
         /dev/mmcblk0p1  /boot/firmware  vfat    defaults,noatime  0  2
@@ -423,19 +436,17 @@ jobs:
         tmpfs           /var/log        tmpfs   size=64M,nodev,nosuid  0  0
         EOF
         
-        # Copy boot files to boot partition
-        # Note: FAT32 doesn't support symlinks, so we need to handle this carefully
-        echo "Copying boot files..."
+        # Copy boot partition files to the FAT32 BOOT PARTITION
+        echo "Copying boot partition files..."
         
         # First, copy everything except symlinks
-        cd work/boot
+        cd work/boot-partition
         sudo find . -not -type l -print0 | sudo cpio -0pdm /mnt/boot/
         
         # Handle symlinks by copying their targets instead
-        for link in $(find . -type l); do
-          target=$(readlink "$link")
-          if [ -f "$target" ]; then
-            # If target is a file, copy it with the link's name
+        for link in $(find . -type l 2>/dev/null); do
+          if [ -e "$link" ]; then
+            # Dereference and copy
             sudo cp -L "$link" "/mnt/boot/$link" 2>/dev/null || true
           fi
         done
@@ -443,7 +454,18 @@ jobs:
         
         # Modify cmdline.txt to remove serial console
         if [ -f /mnt/boot/cmdline.txt ]; then
+          echo "Modifying cmdline.txt..."
           sudo sed -i 's/console=serial0,[0-9]* //g' /mnt/boot/cmdline.txt
+          echo "cmdline.txt contents:"
+          cat /mnt/boot/cmdline.txt
+        fi
+        
+        # Verify config.txt exists and is readable
+        if [ -f /mnt/boot/config.txt ]; then
+          echo "config.txt exists, first few lines:"
+          head -5 /mnt/boot/config.txt
+        else
+          echo "WARNING: config.txt not found!"
         fi
         
         echo "✓ Raspberry Pi OS components integrated"
