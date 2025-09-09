@@ -1,0 +1,504 @@
+name: Build RasPINE Image
+
+on:
+  workflow_dispatch:
+    inputs:
+      debug_enabled:
+        type: boolean
+        description: 'Enable debug mode'
+        required: false
+        default: false
+  push:
+    branches: [ main ]
+    paths:
+      - 'scripts/**'
+      - '.github/workflows/**'
+  schedule:
+    # Monthly build on the 1st at 2 AM UTC
+    - cron: '0 2 1 * *'
+
+env:
+  ALPINE_VERSION: "3.22"
+  ALPINE_ARCH: "armhf"
+  IMAGE_SIZE: "2G"
+  BOOT_SIZE: "256M"
+  BUILD_DATE: ""
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set build date
+      run: echo "BUILD_DATE=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
+
+    - name: Install build dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          qemu-user-static \
+          binfmt-support \
+          parted \
+          kpartx \
+          dosfstools \
+          e2fsprogs \
+          wget \
+          curl \
+          xz-utils \
+          fdisk \
+          util-linux \
+          rsync \
+          git \
+          jq \
+          coreutils
+
+    - name: Set up QEMU for ARM emulation
+      run: |
+        sudo update-binfmts --display
+        sudo update-binfmts --enable qemu-arm
+        sudo update-binfmts --enable qemu-aarch64
+
+    - name: Cache Raspberry Pi OS image
+      id: cache-raspios
+      uses: actions/cache@v3
+      with:
+        path: cache/raspios
+        key: raspios-${{ runner.os }}-month-${{ env.BUILD_DATE }}
+        restore-keys: |
+          raspios-${{ runner.os }}-month-
+
+    - name: Download latest Raspberry Pi OS Lite
+      if: steps.cache-raspios.outputs.cache-hit != 'true'
+      run: |
+        mkdir -p cache/raspios
+        cd cache/raspios
+        
+        # Get the latest Raspberry Pi OS Lite image URL
+        RASPIOS_URL=$(curl -s https://downloads.raspberrypi.org/raspios_lite_armhf/images/ | \
+          grep -oE 'href="[^"]+/"' | \
+          sed 's/href="//;s/"//' | \
+          sort -V | \
+          tail -1)
+        
+        LATEST_DIR="https://downloads.raspberrypi.org/raspios_lite_armhf/images/${RASPIOS_URL}"
+        
+        # Find the actual image file
+        IMAGE_FILE=$(curl -s "${LATEST_DIR}" | \
+          grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}-raspios-[^"]+\.img\.xz' | \
+          head -1)
+        
+        if [ -z "$IMAGE_FILE" ]; then
+          echo "Failed to find Raspberry Pi OS image"
+          exit 1
+        fi
+        
+        echo "Downloading ${IMAGE_FILE}..."
+        wget -q --show-progress "${LATEST_DIR}${IMAGE_FILE}"
+        
+        echo "Extracting image..."
+        xz -d "${IMAGE_FILE}"
+        
+        # Rename to standard name
+        mv *.img raspios-lite.img
+
+    - name: Extract Raspberry Pi OS components
+      run: |
+        mkdir -p work/{boot,rootfs,modules,firmware}
+        
+        # Set up loop device for the image
+        sudo losetup -P /dev/loop0 cache/raspios/raspios-lite.img
+        
+        # Mount partitions
+        sudo mkdir -p /mnt/{raspios-boot,raspios-root}
+        sudo mount /dev/loop0p1 /mnt/raspios-boot
+        sudo mount /dev/loop0p2 /mnt/raspios-root
+        
+        # Copy boot files
+        echo "Copying boot partition..."
+        sudo cp -a /mnt/raspios-boot/* work/boot/
+        
+        # Copy additional /boot files (not in boot partition)
+        if [ -d /mnt/raspios-root/boot ]; then
+          echo "Copying additional /boot files..."
+          sudo cp -a /mnt/raspios-root/boot/* work/boot/ 2>/dev/null || true
+        fi
+        
+        # Copy kernel modules
+        echo "Copying kernel modules..."
+        sudo cp -a /mnt/raspios-root/lib/modules/* work/modules/
+        
+        # Copy firmware
+        echo "Copying firmware..."
+        sudo cp -a /mnt/raspios-root/lib/firmware/* work/firmware/
+        
+        # Copy important config files
+        sudo cp /mnt/raspios-root/etc/modules work/
+        sudo cp -r /mnt/raspios-root/etc/modprobe.d work/
+        
+        # Copy Pi-specific udev rules
+        mkdir -p work/udev-rules
+        for rule in 99-com.rules 10-local-rpi.rules 95-backlight.rules; do
+          [ -f "/mnt/raspios-root/etc/udev/rules.d/$rule" ] && \
+            sudo cp "/mnt/raspios-root/etc/udev/rules.d/$rule" work/udev-rules/
+          [ -f "/mnt/raspios-root/lib/udev/rules.d/$rule" ] && \
+            sudo cp "/mnt/raspios-root/lib/udev/rules.d/$rule" work/udev-rules/
+        done
+        
+        # Cleanup
+        sudo umount /mnt/raspios-boot
+        sudo umount /mnt/raspios-root
+        sudo losetup -d /dev/loop0
+
+    - name: Create empty image
+      run: |
+        echo "Creating ${IMAGE_SIZE} image..."
+        truncate -s ${IMAGE_SIZE} raspine.img
+        
+        # Create partitions
+        parted -s raspine.img \
+          mklabel msdos \
+          mkpart primary fat32 1MiB ${BOOT_SIZE} \
+          mkpart primary ext4 ${BOOT_SIZE} 100% \
+          set 1 boot on
+
+    - name: Set up loop device and format partitions
+      run: |
+        # Set up loop device with partitions
+        sudo losetup -P /dev/loop0 raspine.img
+        
+        # Format partitions
+        echo "Formatting boot partition..."
+        sudo mkfs.vfat -F 32 -n BOOT /dev/loop0p1
+        
+        echo "Formatting root partition..."
+        sudo mkfs.ext4 -L rootfs /dev/loop0p2
+        
+        # Mount partitions
+        sudo mkdir -p /mnt/{boot,root}
+        sudo mount /dev/loop0p1 /mnt/boot
+        sudo mount /dev/loop0p2 /mnt/root
+
+    - name: Install Alpine Linux rootfs
+      run: |
+        # Download Alpine mini root filesystem
+        ALPINE_MIRROR="https://dl-cdn.alpinelinux.org/alpine/v${ALPINE_VERSION%.*}"
+        ALPINE_ROOTFS="alpine-minirootfs-${ALPINE_VERSION}.0-${ALPINE_ARCH}.tar.gz"
+        
+        wget -q "${ALPINE_MIRROR}/releases/${ALPINE_ARCH}/${ALPINE_ROOTFS}"
+        
+        # Extract Alpine rootfs
+        echo "Extracting Alpine rootfs..."
+        sudo tar -xzf "${ALPINE_ROOTFS}" -C /mnt/root/
+        
+        # Copy QEMU static binary for chroot
+        sudo cp /usr/bin/qemu-arm-static /mnt/root/usr/bin/
+
+    - name: Configure Alpine base system
+      run: |
+        cat << 'EOF' | sudo tee /mnt/root/setup-alpine.sh
+        #!/bin/sh
+        set -e
+        
+        # Set up Alpine repositories
+        cat > /etc/apk/repositories << REPOS
+        https://dl-cdn.alpinelinux.org/alpine/v${ALPINE_VERSION%.*}/main
+        https://dl-cdn.alpinelinux.org/alpine/v${ALPINE_VERSION%.*}/community
+        REPOS
+        
+        # Update package index
+        apk update
+        
+        # Install essential packages
+        apk add --no-cache \
+          alpine-base \
+          openrc \
+          util-linux \
+          e2fsprogs \
+          udhcpc \
+          dropbear \
+          wpa_supplicant \
+          libc6-compat \
+          busybox-initscripts \
+          network-extras \
+          rfkill \
+          wireless-tools \
+          iw
+        
+        # Set up services
+        rc-update add devfs sysinit
+        rc-update add dmesg sysinit
+        rc-update add hwclock boot
+        rc-update add modules boot
+        rc-update add sysctl boot
+        rc-update add hostname boot
+        rc-update add bootmisc boot
+        rc-update add syslog boot
+        rc-update add networking boot
+        rc-update add dropbear default
+        rc-update add wpa_supplicant default || true
+        
+        # Configure hostname
+        echo "raspine" > /etc/hostname
+        
+        # Configure hosts file
+        cat > /etc/hosts << HOSTS
+        127.0.0.1   localhost localhost.localdomain
+        127.0.1.1   raspine
+        HOSTS
+        
+        # Set root password to 'raspberry'
+        echo 'root:raspberry' | chpasswd
+        
+        # Allow root SSH login (for initial setup)
+        echo "DROPBEAR_OPTS=\"-B\"" > /etc/conf.d/dropbear
+        
+        # Disable predictable network interface names
+        mkdir -p /etc/udev/rules.d
+        ln -s /dev/null /etc/udev/rules.d/80-net-setup-link.rules
+        
+        # Create necessary directories
+        mkdir -p /boot/firmware
+        mkdir -p /lib/modules
+        mkdir -p /lib/firmware
+        mkdir -p /var/log
+        
+        EOF
+        
+        # Make script executable and run it
+        sudo chmod +x /mnt/root/setup-alpine.sh
+        sudo chroot /mnt/root /setup-alpine.sh
+        sudo rm /mnt/root/setup-alpine.sh
+
+    - name: Configure networking
+      run: |
+        # Network interfaces configuration
+        sudo tee /mnt/root/etc/network/interfaces << 'EOF'
+        auto lo
+        iface lo inet loopback
+        
+        auto eth0
+        iface eth0 inet dhcp
+        
+        # Wireless interface (commented out by default)
+        #auto wlan0
+        #iface wlan0 inet dhcp
+        #  pre-up wpa_supplicant -B -D nl80211 -i wlan0 -c /etc/wpa_supplicant/wpa_supplicant.conf
+        #  post-down killall -q wpa_supplicant
+        EOF
+        
+        # Basic wpa_supplicant configuration
+        sudo mkdir -p /mnt/root/etc/wpa_supplicant
+        sudo tee /mnt/root/etc/wpa_supplicant/wpa_supplicant.conf << 'EOF'
+        ctrl_interface=/var/run/wpa_supplicant
+        ctrl_interface_group=0
+        update_config=1
+        
+        # Add your network configuration here
+        # network={
+        #     ssid="YourNetworkSSID"
+        #     psk="YourNetworkPassword"
+        # }
+        EOF
+
+    - name: Integrate Raspberry Pi OS components
+      run: |
+        # Copy kernel modules
+        echo "Installing kernel modules..."
+        sudo cp -a work/modules/* /mnt/root/lib/modules/
+        
+        # Copy firmware
+        echo "Installing firmware..."
+        sudo cp -a work/firmware/* /mnt/root/lib/firmware/
+        
+        # Copy module configuration
+        sudo cp work/modules /mnt/root/etc/modules
+        sudo cp -r work/modprobe.d /mnt/root/etc/
+        
+        # Copy udev rules
+        echo "Installing udev rules..."
+        sudo cp work/udev-rules/* /mnt/root/etc/udev/rules.d/ 2>/dev/null || true
+        
+        # Create fstab
+        sudo tee /mnt/root/etc/fstab << 'EOF'
+        /dev/mmcblk0p1  /boot/firmware  vfat    defaults,noatime  0  2
+        /dev/mmcblk0p2  /               ext4    defaults,noatime  0  1
+        tmpfs           /var/log        tmpfs   size=64M,nodev,nosuid  0  0
+        EOF
+        
+        # Copy boot files to boot partition
+        echo "Copying boot files..."
+        sudo cp -a work/boot/* /mnt/boot/
+        
+        # Modify cmdline.txt to remove serial console
+        if [ -f /mnt/boot/cmdline.txt ]; then
+          sudo sed -i 's/console=serial0,[0-9]* //g' /mnt/boot/cmdline.txt
+        fi
+
+    - name: Create system information file
+      run: |
+        sudo tee /mnt/root/etc/raspine-release << EOF
+        RasPINE Hybrid System
+        Build Date: ${BUILD_DATE}
+        Alpine Version: ${ALPINE_VERSION}
+        Architecture: ${ALPINE_ARCH}
+        Kernel: Raspberry Pi OS
+        Userland: Alpine Linux
+        EOF
+
+    - name: Cleanup and unmount
+      run: |
+        # Remove QEMU static binary
+        sudo rm -f /mnt/root/usr/bin/qemu-arm-static
+        
+        # Sync and unmount
+        sync
+        sudo umount /mnt/boot
+        sudo umount /mnt/root
+        sudo losetup -d /dev/loop0
+
+    - name: Compress image
+      run: |
+        echo "Compressing image..."
+        xz -9 -T0 raspine.img
+        mv raspine.img.xz "RasPINE-${BUILD_DATE}.img.xz"
+        
+        # Generate checksums
+        sha256sum "RasPINE-${BUILD_DATE}.img.xz" > "RasPINE-${BUILD_DATE}.img.xz.sha256"
+        
+        # Create info file
+        cat > "RasPINE-${BUILD_DATE}.info.txt" << EOF
+        RasPINE Hybrid Image
+        ====================
+        Build Date: ${BUILD_DATE}
+        Alpine Version: ${ALPINE_VERSION}
+        Architecture: ${ALPINE_ARCH}
+        Image Size: $(du -h "RasPINE-${BUILD_DATE}.img.xz" | cut -f1)
+        SHA256: $(cut -d' ' -f1 < "RasPINE-${BUILD_DATE}.img.xz.sha256")
+        
+        Default Credentials:
+        Username: root
+        Password: raspberry
+        
+        Network: DHCP on eth0
+        SSH: Enabled (Dropbear)
+        
+        Compatible with all Raspberry Pi models.
+        EOF
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: RasPINE-${{ env.BUILD_DATE }}
+        path: |
+          RasPINE-*.img.xz
+          RasPINE-*.img.xz.sha256
+          RasPINE-*.info.txt
+        retention-days: 90
+
+    - name: Create Release
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: v${{ env.BUILD_DATE }}
+        name: RasPINE ${{ env.BUILD_DATE }}
+        draft: false
+        prerelease: false
+        files: |
+          RasPINE-*.img.xz
+          RasPINE-*.img.xz.sha256
+          RasPINE-*.info.txt
+        body: |
+          # RasPINE Hybrid Image - ${{ env.BUILD_DATE }}
+          
+          Raspberry Pi OS kernel/firmware with Alpine Linux ${{ env.ALPINE_VERSION }} userland.
+          
+          ## Features
+          - Compatible with all Raspberry Pi models
+          - Alpine Linux armv6/armhf userland
+          - Latest Raspberry Pi OS kernel and firmware
+          - Minimal 2GB image size
+          - DHCP networking enabled
+          - SSH access enabled (Dropbear)
+          
+          ## Default Credentials
+          - Username: `root`
+          - Password: `raspberry`
+          
+          ## Installation
+          1. Download the `.img.xz` file
+          2. Extract: `xz -d RasPINE-${{ env.BUILD_DATE }}.img.xz`
+          3. Write to SD card: `dd if=RasPINE-${{ env.BUILD_DATE }}.img of=/dev/sdX bs=4M status=progress`
+          4. Boot your Raspberry Pi
+          
+          ## Verification
+          Check the SHA256 checksum before use.
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Prepare GitHub Pages content
+      run: |
+        mkdir -p gh-pages/{downloads,assets}
+        
+        # Copy latest build
+        cp RasPINE-*.img.xz gh-pages/downloads/
+        cp RasPINE-*.img.xz.sha256 gh-pages/downloads/
+        cp RasPINE-*.info.txt gh-pages/downloads/
+        
+        # Create latest symlinks
+        cd gh-pages/downloads
+        ln -sf "RasPINE-${BUILD_DATE}.img.xz" "RasPINE-latest.img.xz"
+        ln -sf "RasPINE-${BUILD_DATE}.img.xz.sha256" "RasPINE-latest.img.xz.sha256"
+        ln -sf "RasPINE-${BUILD_DATE}.info.txt" "RasPINE-latest.info.txt"
+        cd ../..
+        
+        # Create download index
+        cat > gh-pages/downloads/index.json << EOF
+        {
+          "latest": "${BUILD_DATE}",
+          "filename": "RasPINE-${BUILD_DATE}.img.xz",
+          "size": "$(du -h RasPINE-${BUILD_DATE}.img.xz | cut -f1)",
+          "sha256": "$(cut -d' ' -f1 < RasPINE-${BUILD_DATE}.img.xz.sha256)",
+          "alpine_version": "${ALPINE_VERSION}",
+          "arch": "${ALPINE_ARCH}"
+        }
+        EOF
+
+    - name: Checkout gh-pages branch
+      uses: actions/checkout@v4
+      with:
+        ref: gh-pages
+        path: gh-pages-branch
+
+    - name: Update gh-pages branch
+      run: |
+        # Copy new files to gh-pages branch
+        cp -r gh-pages/downloads/* gh-pages-branch/downloads/ 2>/dev/null || mkdir -p gh-pages-branch/downloads && cp -r gh-pages/downloads/* gh-pages-branch/downloads/
+        
+        # Keep only 6 latest builds
+        cd gh-pages-branch/downloads
+        ls -t RasPINE-*.img.xz | tail -n +7 | xargs rm -f 2>/dev/null || true
+        ls -t RasPINE-*.img.xz.sha256 | tail -n +7 | xargs rm -f 2>/dev/null || true
+        ls -t RasPINE-*.info.txt | tail -n +7 | xargs rm -f 2>/dev/null || true
+        
+        # Commit and push
+        git config user.name "GitHub Actions"
+        git config user.email "actions@github.com"
+        git add .
+        git commit -m "Update RasPINE build ${BUILD_DATE}" || echo "No changes to commit"
+        git push
+
+    - name: Cleanup old releases
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      uses: dev-drprasad/delete-older-releases@v0.3.2
+      with:
+        keep_latest: 6
+        delete_tags: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
