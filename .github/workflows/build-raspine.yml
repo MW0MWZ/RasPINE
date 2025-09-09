@@ -211,7 +211,7 @@ jobs:
 
     - name: Install Alpine Linux rootfs
       run: |
-        ALPINE_MIRROR="https://dl-cdn.alpinelinux.org/alpine/v3.22"
+        ALPINE_MIRROR="https://dl-cdn.alpinelinux.org/alpine/v${ALPINE_VERSION}"
         
         echo "Searching for Alpine rootfs files..."
         echo "Looking in: ${ALPINE_MIRROR}/releases/${ALPINE_ARCH}/"
@@ -231,10 +231,19 @@ jobs:
                         head -1)
         fi
         
-        # If still nothing, just use the known version
+        # If still nothing, build the filename from known pattern
         if [ -z "$ALPINE_FILE" ]; then
-          echo "Dynamic detection failed, using known version..."
-          ALPINE_FILE="alpine-minirootfs-3.22.1-armhf.tar.gz"
+          echo "Dynamic detection failed, building filename..."
+          # Get latest patch version for this minor version
+          PATCH_VERSION=$(curl -s "${ALPINE_MIRROR}/releases/${ALPINE_ARCH}/" | \
+                          grep -o "alpine-minirootfs-${ALPINE_VERSION}\.[0-9]*-${ALPINE_ARCH}\.tar\.gz" | \
+                          sed "s/.*-${ALPINE_VERSION}\.\([0-9]*\)-.*/\1/" | \
+                          sort -n | tail -1)
+          if [ -n "$PATCH_VERSION" ]; then
+            ALPINE_FILE="alpine-minirootfs-${ALPINE_VERSION}.${PATCH_VERSION}-${ALPINE_ARCH}.tar.gz"
+          else
+            ALPINE_FILE="alpine-minirootfs-${ALPINE_VERSION}.0-${ALPINE_ARCH}.tar.gz"
+          fi
         fi
         
         echo "Found Alpine rootfs: ${ALPINE_FILE}"
@@ -273,6 +282,12 @@ jobs:
         echo "Setting up DNS for chroot..."
         sudo cp /etc/resolv.conf /mnt/root/etc/resolv.conf
         
+        # Pass environment variables to the chroot
+        sudo tee /mnt/root/etc/alpine-build-env << ENV_EOF
+        export ALPINE_VERSION="${ALPINE_VERSION}"
+        export ALPINE_ARCH="${ALPINE_ARCH}"
+        ENV_EOF
+        
         # Also mount necessary filesystems for chroot
         sudo mount -t proc none /mnt/root/proc
         sudo mount -t sysfs none /mnt/root/sys
@@ -283,6 +298,9 @@ jobs:
         #!/bin/sh
         set -e
         
+        # Source the environment variables
+        . /etc/alpine-build-env
+        
         # Ensure DNS is working
         echo "Testing DNS resolution..."
         nslookup dl-cdn.alpinelinux.org || {
@@ -291,10 +309,11 @@ jobs:
           echo "nameserver 8.8.4.4" >> /etc/resolv.conf
         }
         
-        # Set up Alpine repositories
+        # Set up Alpine repositories using the version variable
+        echo "Setting up Alpine ${ALPINE_VERSION} repositories..."
         cat > /etc/apk/repositories << REPOS
-        https://dl-cdn.alpinelinux.org/alpine/v3.22/main
-        https://dl-cdn.alpinelinux.org/alpine/v3.22/community
+        https://dl-cdn.alpinelinux.org/alpine/v${ALPINE_VERSION}/main
+        https://dl-cdn.alpinelinux.org/alpine/v${ALPINE_VERSION}/community
         REPOS
         
         # Update package index
@@ -381,7 +400,7 @@ jobs:
         mkdir -p /home/raspine
         chown raspine:raspine /home/raspine
         
-        echo "Alpine configuration complete!"
+        echo "Alpine ${ALPINE_VERSION} configuration complete!"
         EOF
         
         # Make script executable and run it
@@ -390,6 +409,7 @@ jobs:
         
         # Cleanup
         sudo rm /mnt/root/setup-alpine.sh
+        sudo rm /mnt/root/etc/alpine-build-env
         
         # Unmount the bind mounts
         sudo umount /mnt/root/dev/pts 2>/dev/null || true
@@ -795,9 +815,9 @@ jobs:
         # Mark as configured
         date > "$PROCESSED_FLAG"
         
-        # Rename config file for security (keep for reference)
-        mv "$CONFIG_FILE" "${CONFIG_FILE}.processed"
-        log "Configuration complete! File renamed to raspine-config.txt.processed"
+        # DELETE the config file for security (it contains passwords!)
+        rm -f "$CONFIG_FILE"
+        log "Configuration complete! Config file securely deleted."
         
         # Don't restart SSH here either - let it start normally
         log "Services will start after configuration completes"
@@ -837,6 +857,7 @@ jobs:
         # RasPINE Boot Configuration
         # Copy this file to the boot partition as 'raspine-config.txt'
         # Remove the # from lines you want to use
+        # WARNING: This file will be DELETED after processing for security!
         
         # === WIFI CONFIGURATION ===
         # Primary network (highest priority)
@@ -879,7 +900,7 @@ jobs:
         # • Root account is disabled by default (secure)
         # • raspine user has passwordless sudo access
         # • SSH password authentication is disabled unless explicitly enabled
-        # • This file may be automatically deleted after processing for security
+        # • THIS FILE WILL BE DELETED after processing for security
         # • WiFi networks are tried in order of priority (higher numbers first)
         EOF
         
@@ -927,7 +948,7 @@ jobs:
         SHA256: $(cut -d' ' -f1 < "RasPINE-${BUILD_DATE}.img.xz.sha256")
         
         Default Credentials:
-        Username: raspine (or root)
+        Username: raspine
         Password: raspberry
         
         Network: DHCP on eth0
@@ -974,7 +995,7 @@ jobs:
           - Non-root 'raspine' user with sudo access
           
           ## Default Credentials
-          - Username: `raspine` (or `root`)
+          - Username: `raspine`
           - Password: `raspberry`
           
           ## Installation
