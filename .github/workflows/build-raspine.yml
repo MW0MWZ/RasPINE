@@ -802,10 +802,14 @@ jobs:
         
         description="RasPINE Boot Configuration"
         
+        # Set a short timeout since this is a quick operation
+        rc_timeout=5
+        
         depend() {
             need localmount
             after hwclock modules
             before networking wpa_supplicant
+            provide raspine-config
         }
         
         start() {
