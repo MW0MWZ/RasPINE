@@ -306,21 +306,18 @@ jobs:
         echo "Updating package index..."
         apk update
         
-        # Install base packages plus WiFi support
-        echo "Installing packages..."
+        # Install ONLY the bare minimum to boot
+        echo "Installing minimal packages..."
         apk add --no-cache \
           alpine-base \
           openrc \
           util-linux \
           e2fsprogs \
           dropbear \
-          libc6-compat \
-          wpa_supplicant \
-          wireless-tools \
-          iw
+          libc6-compat
         
-        # Set up essential services
-        echo "Configuring services..."
+        # Set up only essential services
+        echo "Configuring essential services..."
         rc-update add devfs sysinit
         rc-update add dmesg sysinit
         rc-update add hwclock boot
@@ -331,7 +328,6 @@ jobs:
         rc-update add syslog boot
         rc-update add networking boot
         rc-update add dropbear default
-        rc-update add wpa_supplicant boot
         
         # Configure hostname
         echo "raspine" > /etc/hostname
@@ -349,9 +345,6 @@ jobs:
         mkdir -p /etc/conf.d
         echo "DROPBEAR_OPTS=\"-B\"" > /etc/conf.d/dropbear
         
-        # Configure wpa_supplicant service to not fail if no config
-        echo 'wpa_supplicant_args="-q"' > /etc/conf.d/wpa_supplicant
-        
         # Disable predictable network interface names
         mkdir -p /etc/udev/rules.d
         ln -s /dev/null /etc/udev/rules.d/80-net-setup-link.rules
@@ -361,7 +354,6 @@ jobs:
         mkdir -p /lib/modules
         mkdir -p /lib/firmware
         mkdir -p /var/log
-        mkdir -p /usr/local/bin
         
         echo "Alpine configuration complete!"
         EOF
@@ -379,7 +371,7 @@ jobs:
         sudo umount /mnt/root/sys
         sudo umount /mnt/root/proc
         
-        echo "✓ Alpine base system configured with WiFi support"
+        echo "✓ Alpine base system configured"
 
     - name: Configure networking
       run: |
