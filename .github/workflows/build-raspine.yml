@@ -353,34 +353,49 @@ jobs:
 
     - name: Configure networking
       run: |
-        # Network interfaces configuration
+        # Very basic network configuration - we'll use busybox udhcpc which is included
         sudo tee /mnt/root/etc/network/interfaces << 'EOF'
         auto lo
         iface lo inet loopback
         
         auto eth0
         iface eth0 inet dhcp
-        
-        # Wireless interface (commented out by default)
-        #auto wlan0
-        #iface wlan0 inet dhcp
-        #  pre-up wpa_supplicant -B -D nl80211 -i wlan0 -c /etc/wpa_supplicant/wpa_supplicant.conf
-        #  post-down killall -q wpa_supplicant
         EOF
         
-        # Basic wpa_supplicant configuration
-        sudo mkdir -p /mnt/root/etc/wpa_supplicant
-        sudo tee /mnt/root/etc/wpa_supplicant/wpa_supplicant.conf << 'EOF'
-        ctrl_interface=/var/run/wpa_supplicant
-        ctrl_interface_group=0
-        update_config=1
+        # Create a simple dhcp script for busybox udhcpc
+        sudo mkdir -p /mnt/root/usr/share/udhcpc
+        sudo tee /mnt/root/usr/share/udhcpc/default.script << 'EOF'
+        #!/bin/sh
+        # Minimal DHCP handler script
         
-        # Add your network configuration here
-        # network={
-        #     ssid="YourNetworkSSID"
-        #     psk="YourNetworkPassword"
-        # }
+        [ -z "$1" ] && exit 1
+        
+        RESOLV_CONF="/etc/resolv.conf"
+        
+        case "$1" in
+          deconfig)
+            ip addr flush dev $interface
+            ;;
+          bound|renew)
+            ip addr add $ip/${mask:-24} dev $interface
+            
+            if [ -n "$router" ]; then
+              ip route add default via $router dev $interface
+            fi
+            
+            if [ -n "$dns" ]; then
+              > $RESOLV_CONF
+              for i in $dns; do
+                echo "nameserver $i" >> $RESOLV_CONF
+              done
+            fi
+            ;;
+        esac
         EOF
+        
+        sudo chmod +x /mnt/root/usr/share/udhcpc/default.script
+        
+        echo "✓ Basic networking configured"
 
     - name: Integrate Raspberry Pi OS components
       run: |
@@ -409,13 +424,29 @@ jobs:
         EOF
         
         # Copy boot files to boot partition
+        # Note: FAT32 doesn't support symlinks, so we need to handle this carefully
         echo "Copying boot files..."
-        sudo cp -a work/boot/* /mnt/boot/
+        
+        # First, copy everything except symlinks
+        cd work/boot
+        sudo find . -not -type l -print0 | sudo cpio -0pdm /mnt/boot/
+        
+        # Handle symlinks by copying their targets instead
+        for link in $(find . -type l); do
+          target=$(readlink "$link")
+          if [ -f "$target" ]; then
+            # If target is a file, copy it with the link's name
+            sudo cp -L "$link" "/mnt/boot/$link" 2>/dev/null || true
+          fi
+        done
+        cd - > /dev/null
         
         # Modify cmdline.txt to remove serial console
         if [ -f /mnt/boot/cmdline.txt ]; then
           sudo sed -i 's/console=serial0,[0-9]* //g' /mnt/boot/cmdline.txt
         fi
+        
+        echo "✓ Raspberry Pi OS components integrated"
 
     - name: Create system information file
       run: |
