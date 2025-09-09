@@ -634,6 +634,142 @@ jobs:
         done
         cd - > /dev/null
         
+        # Optimize config.txt for RasPINE using sed
+        echo "Optimizing config.txt for RasPINE..."
+        
+        # Modify existing parameters
+        sudo sed -i 's/^camera_auto_detect=.*/camera_auto_detect=0/' /mnt/boot/config.txt
+        
+        # Remove audio line (comment it out or delete)
+        sudo sed -i '/^dtparam=audio=/d' /mnt/boot/config.txt
+        
+        # Remove arm_boost line if it exists
+        sudo sed -i '/^arm_boost=/d' /mnt/boot/config.txt
+        
+        # Add GPU memory optimization if not present
+        if ! grep -q "^gpu_mem=" /mnt/boot/config.txt; then
+            # Add before [cm4] section if it exists, otherwise at end of main section
+            if grep -q "^\[cm4\]" /mnt/boot/config.txt; then
+                sudo sed -i '/^\[cm4\]/i # Free up some RAM\ngpu_mem=16\n' /mnt/boot/config.txt
+            else
+                # Add at the end before [all] section
+                sudo sed -i '/^\[all\]/i # Free up some RAM\ngpu_mem=16\n' /mnt/boot/config.txt
+            fi
+        fi
+        
+        # Add model-specific sections before [all] section
+        # First, check if we need to add our custom sections
+        if ! grep -q "^\[pi0\]" /mnt/boot/config.txt; then
+            echo "Adding model-specific optimizations..."
+            
+            # Create a temporary file with our additions
+            cat << 'CONFIGEND' > /tmp/raspine-config-additions.txt
+        
+        # Model Specifics
+        [pi0]
+        kernel=kernel.img
+        arm_freq=1000
+        core_freq=350
+        sdram_freq=450
+        
+        [pi1]
+        kernel=kernel.img
+        gpu_freq=100
+        
+        [pi2]
+        kernel=kernel.img
+        gpu_freq=100
+        
+        [pi3]
+        kernel=kernel8.img
+        arm_freq=1000
+        gpu_freq=100
+        
+        [pi3+]
+        kernel=kernel8.img
+        arm_freq=1200
+        gpu_freq=100
+        
+        [pi02]
+        kernel=kernel8.img
+        arm_freq=800
+        gpu_freq=100
+        
+        [pi4]
+        kernel=kernel8.img
+        
+        [pi5]
+        kernel=kernel8.img
+        
+        CONFIGEND
+            
+            # Insert our additions before the [all] section
+            if grep -q "^\[all\]" /mnt/boot/config.txt; then
+                # Find line number of [all] section
+                LINE_NUM=$(grep -n "^\[all\]" /mnt/boot/config.txt | cut -d: -f1)
+                # Insert our content before it
+                sudo sed -i "${LINE_NUM}r /tmp/raspine-config-additions.txt" /mnt/boot/config.txt
+            else
+                # No [all] section, append at end
+                sudo cat /tmp/raspine-config-additions.txt >> /mnt/boot/config.txt
+            fi
+            
+            rm /tmp/raspine-config-additions.txt
+        fi
+        
+        # Update [cm4] section if it exists - add kernel specification
+        if grep -q "^\[cm4\]" /mnt/boot/config.txt; then
+            # Add kernel=kernel8.img after [cm4] if not present
+            if ! sed -n '/^\[cm4\]/,/^\[/p' /mnt/boot/config.txt | grep -q "^kernel="; then
+                sudo sed -i '/^\[cm4\]/a kernel=kernel8.img' /mnt/boot/config.txt
+            fi
+        fi
+        
+        # Update [cm5] section if it exists - add kernel specification
+        if grep -q "^\[cm5\]" /mnt/boot/config.txt; then
+            # Add kernel=kernel8.img after [cm5] if not present
+            if ! sed -n '/^\[cm5\]/,/^\[/p' /mnt/boot/config.txt | grep -q "^kernel="; then
+                sudo sed -i '/^\[cm5\]/a kernel=kernel8.img' /mnt/boot/config.txt
+            fi
+        fi
+        
+        # Add our [all] section parameters
+        if grep -q "^\[all\]" /mnt/boot/config.txt; then
+            echo "Updating [all] section..."
+            # Add our parameters after [all] if they don't exist
+            if ! grep -q "^dtparam=i2c_arm=on" /mnt/boot/config.txt; then
+                sudo sed -i '/^\[all\]/a dtparam=i2c_arm=on' /mnt/boot/config.txt
+            fi
+            if ! grep -q "^dtparam=spi=on" /mnt/boot/config.txt; then
+                sudo sed -i '/^\[all\]/a dtparam=spi=on' /mnt/boot/config.txt
+            fi
+            if ! grep -q "^dtoverlay=miniuart-bt" /mnt/boot/config.txt; then
+                sudo sed -i '/^\[all\]/a dtoverlay=miniuart-bt' /mnt/boot/config.txt
+            fi
+            if ! grep -q "^dtparam=uart0=on" /mnt/boot/config.txt; then
+                sudo sed -i '/^\[all\]/a dtparam=uart0=on' /mnt/boot/config.txt
+            fi
+            if ! grep -q "^dtparam=uart1=on" /mnt/boot/config.txt; then
+                sudo sed -i '/^\[all\]/a dtparam=uart1=on' /mnt/boot/config.txt
+            fi
+            if ! grep -q "^temp_limit=" /mnt/boot/config.txt; then
+                sudo sed -i '/^\[all\]/a temp_limit=75' /mnt/boot/config.txt
+            fi
+        else
+            # No [all] section exists, create it
+            echo "Creating [all] section..."
+            cat << 'ALLEND' | sudo tee -a /mnt/boot/config.txt
+        
+        [all]
+        dtparam=i2c_arm=on
+        dtparam=spi=on
+        dtoverlay=miniuart-bt
+        dtparam=uart0=on
+        dtparam=uart1=on
+        temp_limit=75
+        ALLEND
+        fi
+        
         # Fix cmdline.txt for Alpine Linux boot
         if [ -f /mnt/boot/cmdline.txt ]; then
           echo "Fixing cmdline.txt for RasPINE..."
@@ -648,19 +784,20 @@ jobs:
           echo "console=tty1 root=/dev/mmcblk0p2 rootfstype=ext4 fsck.repair=yes rootwait" | sudo tee /mnt/boot/cmdline.txt
         fi
         
-        # Verify config.txt exists and is readable
-        if [ -f /mnt/boot/config.txt ]; then
-          echo "config.txt exists, first few lines:"
-          head -5 /mnt/boot/config.txt
-        else
-          echo "WARNING: config.txt not found!"
-        fi
+        # Verify config.txt modifications
+        echo "Verifying config.txt modifications..."
+        echo "Camera auto-detect status:"
+        grep "camera_auto_detect" /mnt/boot/config.txt || echo "Not found"
+        echo "GPU memory setting:"
+        grep "gpu_mem" /mnt/boot/config.txt || echo "Not found"
+        echo "[all] section parameters:"
+        sed -n '/^\[all\]/,/^\[/p' /mnt/boot/config.txt | head -10
         
         # Verify the symlinks were created correctly
         echo "Verifying boot symlinks:"
         ls -la /mnt/root/boot/cmdline.txt /mnt/root/boot/config.txt
         
-        echo "✓ Raspberry Pi OS components integrated with WiFi support"
+        echo "✓ Raspberry Pi OS components integrated with optimized config"
 
     - name: Create boot configuration system
       run: |
