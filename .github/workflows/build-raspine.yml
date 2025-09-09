@@ -446,8 +446,8 @@ jobs:
         EOF
         
         # Create dhcpcd hook to sync time when we get an IP
-        sudo mkdir -p /mnt/root/lib/dhcpcd/dhcpcd-hooks
-        sudo tee /mnt/root/lib/dhcpcd/dhcpcd-hooks/30-time-sync << 'EOF'
+        sudo mkdir -p /mnt/root/usr/lib/dhcpcd/dhcpcd-hooks
+        sudo tee /mnt/root/usr/lib/dhcpcd/dhcpcd-hooks/30-time-sync << 'EOF'
         #!/bin/sh
         # Sync time when network comes up
         
@@ -469,7 +469,7 @@ jobs:
             ;;
         esac
         EOF
-        sudo chmod +x /mnt/root/lib/dhcpcd/dhcpcd-hooks/30-time-sync
+        sudo chmod +x /mnt/root/usr/lib/dhcpcd/dhcpcd-hooks/30-time-sync
         
         # Network interfaces configuration (simplified for dhcpcd)
         sudo tee /mnt/root/etc/network/interfaces << 'EOF'
