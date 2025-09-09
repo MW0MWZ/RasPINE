@@ -108,7 +108,7 @@ jobs:
 
     - name: Extract Raspberry Pi OS components
       run: |
-        mkdir -p work/{boot,rootfs,modules,firmware}
+        mkdir -p work/{boot,rootfs,modules,firmware,config}
         
         # Set up loop device for the image
         sudo losetup -P /dev/loop0 cache/raspios/raspios-lite.img
@@ -128,7 +128,7 @@ jobs:
           sudo cp -a /mnt/raspios-root/boot/* work/boot/ 2>/dev/null || true
         fi
         
-        # Copy kernel modules
+        # Copy kernel modules (the actual module files)
         echo "Copying kernel modules..."
         sudo cp -a /mnt/raspios-root/lib/modules/* work/modules/
         
@@ -136,9 +136,10 @@ jobs:
         echo "Copying firmware..."
         sudo cp -a /mnt/raspios-root/lib/firmware/* work/firmware/
         
-        # Copy important config files
-        sudo cp /mnt/raspios-root/etc/modules work/
-        sudo cp -r /mnt/raspios-root/etc/modprobe.d work/
+        # Copy important config files (note: /etc/modules is a file, not a directory)
+        echo "Copying configuration files..."
+        sudo cp /mnt/raspios-root/etc/modules work/config/modules
+        sudo cp -r /mnt/raspios-root/etc/modprobe.d work/config/
         
         # Copy Pi-specific udev rules
         mkdir -p work/udev-rules
@@ -206,8 +207,8 @@ jobs:
         
         # Set up Alpine repositories
         cat > /etc/apk/repositories << REPOS
-        https://dl-cdn.alpinelinux.org/alpine/v${ALPINE_VERSION%.*}/main
-        https://dl-cdn.alpinelinux.org/alpine/v${ALPINE_VERSION%.*}/community
+        https://dl-cdn.alpinelinux.org/alpine/v3.22/main
+        https://dl-cdn.alpinelinux.org/alpine/v3.22/community
         REPOS
         
         # Update package index
@@ -315,9 +316,10 @@ jobs:
         echo "Installing firmware..."
         sudo cp -a work/firmware/* /mnt/root/lib/firmware/
         
-        # Copy module configuration
-        sudo cp work/modules /mnt/root/etc/modules
-        sudo cp -r work/modprobe.d /mnt/root/etc/
+        # Copy module configuration files
+        echo "Installing module configuration..."
+        sudo cp work/config/modules /mnt/root/etc/modules
+        sudo cp -r work/config/modprobe.d /mnt/root/etc/
         
         # Copy udev rules
         echo "Installing udev rules..."
@@ -402,7 +404,7 @@ jobs:
 
     - name: Create Release
       if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@v2
       with:
         tag_name: v${{ env.BUILD_DATE }}
         name: RasPINE ${{ env.BUILD_DATE }}
@@ -441,6 +443,7 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Prepare GitHub Pages content
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
       run: |
         mkdir -p gh-pages/{downloads,assets}
         
@@ -469,21 +472,26 @@ jobs:
         EOF
 
     - name: Checkout gh-pages branch
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
       uses: actions/checkout@v4
       with:
         ref: gh-pages
         path: gh-pages-branch
 
     - name: Update gh-pages branch
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
       run: |
+        # Create downloads directory if it doesn't exist
+        mkdir -p gh-pages-branch/downloads
+        
         # Copy new files to gh-pages branch
-        cp -r gh-pages/downloads/* gh-pages-branch/downloads/ 2>/dev/null || mkdir -p gh-pages-branch/downloads && cp -r gh-pages/downloads/* gh-pages-branch/downloads/
+        cp -r gh-pages/downloads/* gh-pages-branch/downloads/
         
         # Keep only 6 latest builds
         cd gh-pages-branch/downloads
-        ls -t RasPINE-*.img.xz | tail -n +7 | xargs rm -f 2>/dev/null || true
-        ls -t RasPINE-*.img.xz.sha256 | tail -n +7 | xargs rm -f 2>/dev/null || true
-        ls -t RasPINE-*.info.txt | tail -n +7 | xargs rm -f 2>/dev/null || true
+        ls -t RasPINE-*.img.xz 2>/dev/null | tail -n +7 | xargs rm -f 2>/dev/null || true
+        ls -t RasPINE-*.img.xz.sha256 2>/dev/null | tail -n +7 | xargs rm -f 2>/dev/null || true
+        ls -t RasPINE-*.info.txt 2>/dev/null | tail -n +7 | xargs rm -f 2>/dev/null || true
         
         # Commit and push
         git config user.name "GitHub Actions"
