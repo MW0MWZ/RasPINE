@@ -464,6 +464,27 @@ jobs:
         sudo cp work/config/modules /mnt/root/etc/modules
         sudo cp -r work/config/modprobe.d /mnt/root/etc/
         
+        # Fix rfkill configuration that blocks WiFi
+        echo "Fixing rfkill configuration..."
+        if [ -f /mnt/root/etc/modprobe.d/rfkill_default.conf ]; then
+          echo "Found rfkill_default.conf, checking contents..."
+          cat /mnt/root/etc/modprobe.d/rfkill_default.conf
+          
+          # Comment out or modify lines that block WiFi
+          sudo sed -i 's/^options rfkill default_state=0/# options rfkill default_state=0/' /mnt/root/etc/modprobe.d/rfkill_default.conf
+          
+          # Or replace it entirely with WiFi-friendly config
+          sudo tee /mnt/root/etc/modprobe.d/rfkill_default.conf << 'EOF'
+        # RasPINE rfkill configuration
+        # default_state=1 means radios are UNBLOCKED by default
+        # To block all radios by default, set to 0
+        options rfkill default_state=1 master_switch_mode=2
+        EOF
+          
+          echo "Updated rfkill configuration:"
+          cat /mnt/root/etc/modprobe.d/rfkill_default.conf
+        fi
+        
         # Add Broadcom WiFi modules to load at boot
         echo "Adding Broadcom WiFi modules to auto-load..."
         cat << 'EOF' | sudo tee -a /mnt/root/etc/modules
@@ -563,7 +584,7 @@ jobs:
 
     - name: Configure networking
       run: |
-        # Network configuration with hotplug for eth0 and WiFi support
+        # Network configuration with proper DHCP for both interfaces
         sudo tee /mnt/root/etc/network/interfaces << 'EOF'
         auto lo
         iface lo inet loopback
@@ -576,7 +597,10 @@ jobs:
         allow-hotplug wlan0
         iface wlan0 inet dhcp
           pre-up wpa_supplicant -B -D nl80211 -i wlan0 -c /etc/wpa_supplicant/wpa_supplicant.conf
+          pre-up sleep 2
+          post-up udhcpc -i wlan0 -b
           post-down killall -q wpa_supplicant
+          post-down killall -q udhcpc
         EOF
         
         # Create wpa_supplicant configuration
@@ -594,10 +618,77 @@ jobs:
         # }
         EOF
         
-        # Create a simple WiFi configuration helper script
+        # Create a proper udhcpc script
+        sudo mkdir -p /mnt/root/usr/share/udhcpc
+        sudo tee /mnt/root/usr/share/udhcpc/default.script << 'EOF'
+        #!/bin/sh
+        # DHCP handler script for busybox udhcpc
+        
+        [ -z "$1" ] && exit 1
+        
+        RESOLV_CONF="/etc/resolv.conf"
+        
+        case "$1" in
+          deconfig)
+            # Clear IP configuration
+            ip -4 addr flush dev $interface
+            ip link set $interface up
+            ;;
+            
+          bound|renew)
+            # Set IP address
+            ip addr add ${ip}/${mask:-24} brd ${broadcast:-+} dev $interface
+            
+            # Remove any existing default routes for this interface
+            while ip route del default dev $interface 2>/dev/null; do :; done
+            
+            # Set default route if we have one
+            if [ -n "$router" ]; then
+              for r in $router; do
+                ip route add default via $r dev $interface
+                break  # Only use first router
+              done
+            fi
+            
+            # Update DNS
+            if [ -n "$dns" ]; then
+              > $RESOLV_CONF.new
+              [ -n "$domain" ] && echo "domain $domain" >> $RESOLV_CONF.new
+              for d in $dns; do
+                echo "nameserver $d" >> $RESOLV_CONF.new
+              done
+              mv $RESOLV_CONF.new $RESOLV_CONF
+            fi
+            ;;
+        esac
+        
+        exit 0
+        EOF
+        
+        sudo chmod +x /mnt/root/usr/share/udhcpc/default.script
+        
+        # Create a manual DHCP refresh script
+        sudo tee /mnt/root/usr/local/bin/dhcp-refresh << 'EOF'
+        #!/bin/sh
+        # Manual DHCP refresh for WiFi
+        
+        echo "Refreshing DHCP on wlan0..."
+        
+        # Kill any existing udhcpc for wlan0
+        killall -q udhcpc
+        
+        # Start udhcpc manually
+        udhcpc -i wlan0 -S -f -q &
+        
+        echo "DHCP client started. Check IP with: ip addr show wlan0"
+        EOF
+        
+        sudo chmod +x /mnt/root/usr/local/bin/dhcp-refresh
+        
+        # Create WiFi setup helper that ensures DHCP
         sudo tee /mnt/root/usr/local/bin/wifi-setup << 'EOF'
         #!/bin/sh
-        # Simple WiFi setup helper for RasPINE
+        # WiFi setup helper for RasPINE
         
         if [ "$#" -ne 2 ]; then
             echo "Usage: wifi-setup <SSID> <PASSWORD>"
@@ -612,15 +703,28 @@ jobs:
         wpa_passphrase "$SSID" "$PSK" >> /etc/wpa_supplicant/wpa_supplicant.conf
         
         echo "WiFi network added. Restarting interface..."
+        
+        # Bring down interface
         ifdown wlan0 2>/dev/null
+        killall -q wpa_supplicant
+        killall -q udhcpc
+        
+        # Bring up interface
         ifup wlan0
+        
+        # Ensure DHCP is running
+        sleep 3
+        if ! pidof udhcpc > /dev/null; then
+            echo "Starting DHCP client manually..."
+            udhcpc -i wlan0 -S -f -q &
+        fi
         
         echo "Done! Check connection with: ip addr show wlan0"
         EOF
         
         sudo chmod +x /mnt/root/usr/local/bin/wifi-setup
         
-        echo "✓ Networking configured with hotplug and WiFi support"
+        echo "✓ Networking configured with proper DHCP support"
     
     - name: Create system information file
       run: |
