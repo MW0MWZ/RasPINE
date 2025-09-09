@@ -187,53 +187,6 @@ jobs:
         sudo mount /dev/loop0p1 /mnt/boot
         sudo mount /dev/loop0p2 /mnt/root
 
-      run: |
-        ALPINE_MIRROR="https://dl-cdn.alpinelinux.org/alpine/v${ALPINE_VERSION%.*}"
-        
-        echo "Searching for Alpine rootfs files..."
-        
-        # Get the actual filename from the directory listing
-        ALPINE_FILE=$(curl -s "${ALPINE_MIRROR}/releases/${ALPINE_ARCH}/" | \
-                      grep -o 'href="alpine-minirootfs-[^"]*armhf\.tar\.gz"' | \
-                      sed 's/href="//;s/"//' | \
-                      grep "^alpine-minirootfs-${ALPINE_VERSION}" | \
-                      head -1)
-        
-        if [ -z "$ALPINE_FILE" ]; then
-          echo "ERROR: Could not find Alpine minirootfs for ${ALPINE_VERSION}"
-          echo "Available files:"
-          curl -s "${ALPINE_MIRROR}/releases/${ALPINE_ARCH}/" | grep -o 'alpine-minirootfs-[^"]*\.tar\.gz'
-          exit 1
-        fi
-        
-        echo "Found Alpine rootfs: ${ALPINE_FILE}"
-        FULL_URL="${ALPINE_MIRROR}/releases/${ALPINE_ARCH}/${ALPINE_FILE}"
-        echo "Downloading from: ${FULL_URL}"
-        
-        # Download with curl (more reliable than wget sometimes)
-        curl -L -o "${ALPINE_FILE}" "${FULL_URL}" || {
-          echo "Download failed with curl, trying wget..."
-          wget -O "${ALPINE_FILE}" "${FULL_URL}" || exit 1
-        }
-        
-        # Verify download
-        if [ ! -f "${ALPINE_FILE}" ]; then
-          echo "ERROR: Download failed - file not found"
-          exit 1
-        fi
-        
-        FILE_SIZE=$(du -h "${ALPINE_FILE}" | cut -f1)
-        echo "Downloaded successfully: ${ALPINE_FILE} (${FILE_SIZE})"
-        
-        # Extract Alpine rootfs
-        echo "Extracting Alpine rootfs to /mnt/root/..."
-        sudo tar -xzf "${ALPINE_FILE}" -C /mnt/root/
-        
-        # Copy QEMU static binary for chroot
-        echo "Setting up QEMU for ARM emulation..."
-        sudo cp /usr/bin/qemu-arm-static /mnt/root/usr/bin/
-        
-        echo "✓ Alpine rootfs installation complete"
     - name: Install Alpine Linux rootfs
       run: |
         ALPINE_MIRROR="https://dl-cdn.alpinelinux.org/alpine/v${ALPINE_VERSION%.*}"
