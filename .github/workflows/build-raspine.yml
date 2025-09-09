@@ -216,11 +216,6 @@ jobs:
         echo "Searching for Alpine rootfs files..."
         echo "Looking in: ${ALPINE_MIRROR}/releases/${ALPINE_ARCH}/"
         
-        # Debug: Let's see what's actually in the directory
-        echo "=== Directory listing ==="
-        curl -s "${ALPINE_MIRROR}/releases/${ALPINE_ARCH}/" | grep -o 'alpine-minirootfs[^"<]*\.tar\.gz' | head -5
-        echo "======================="
-        
         # Get the actual filename - simplified pattern
         ALPINE_FILE=$(curl -s "${ALPINE_MIRROR}/releases/${ALPINE_ARCH}/" | \
                       grep -o 'alpine-minirootfs[^"<]*\.tar\.gz' | \
@@ -272,7 +267,7 @@ jobs:
         
         echo "✓ Alpine rootfs installation complete"
 
-    - name: Configure Alpine base system
+    - name: Configure Alpine base system with user support
       run: |
         # Copy DNS configuration into chroot
         echo "Setting up DNS for chroot..."
@@ -306,18 +301,30 @@ jobs:
         echo "Updating package index..."
         apk update
         
-        # Install ONLY the bare minimum to boot
-        echo "Installing minimal packages..."
+        # Install base packages plus WiFi support and sudo
+        echo "Installing packages..."
         apk add --no-cache \
           alpine-base \
           openrc \
           util-linux \
           e2fsprogs \
           dropbear \
-          libc6-compat
+          libc6-compat \
+          wpa_supplicant \
+          wireless-tools \
+          iw \
+          ca-certificates \
+          ca-certificates-bundle \
+          openssl \
+          sudo \
+          tzdata
         
-        # Set up only essential services
-        echo "Configuring essential services..."
+        # Update CA certificates to fix SSL/TLS issues
+        echo "Updating CA certificates..."
+        update-ca-certificates
+        
+        # Set up essential services
+        echo "Configuring services..."
         rc-update add devfs sysinit
         rc-update add dmesg sysinit
         rc-update add hwclock boot
@@ -328,6 +335,7 @@ jobs:
         rc-update add syslog boot
         rc-update add networking boot
         rc-update add dropbear default
+        rc-update add wpa_supplicant boot
         
         # Configure hostname
         echo "raspine" > /etc/hostname
@@ -338,12 +346,24 @@ jobs:
         127.0.1.1   raspine
         HOSTS
         
-        # Set root password to 'raspberry'
-        echo 'root:raspberry' | chpasswd
+        # Create raspine user with sudo access
+        echo "Creating raspine user..."
+        adduser -D -s /bin/sh raspine
+        addgroup raspine wheel
+        echo "raspine:raspberry" | chpasswd
         
-        # Allow root SSH login (for initial setup)
+        # Configure sudo for wheel group (passwordless)
+        echo "%wheel ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/wheel
+        
+        # Disable root password login (can still sudo)
+        passwd -l root
+        
+        # Configure SSH - key only by default
         mkdir -p /etc/conf.d
-        echo "DROPBEAR_OPTS=\"-B\"" > /etc/conf.d/dropbear
+        echo 'DROPBEAR_OPTS="-B -s"' > /etc/conf.d/dropbear
+        
+        # Configure wpa_supplicant service to not fail if no config
+        echo 'wpa_supplicant_args="-q"' > /etc/conf.d/wpa_supplicant
         
         # Disable predictable network interface names
         mkdir -p /etc/udev/rules.d
@@ -354,6 +374,11 @@ jobs:
         mkdir -p /lib/modules
         mkdir -p /lib/firmware
         mkdir -p /var/log
+        mkdir -p /usr/local/bin
+        
+        # Create home directory structure for raspine
+        mkdir -p /home/raspine
+        chown raspine:raspine /home/raspine
         
         echo "Alpine configuration complete!"
         EOF
@@ -371,24 +396,49 @@ jobs:
         sudo umount /mnt/root/sys
         sudo umount /mnt/root/proc
         
-        echo "✓ Alpine base system configured"
+        echo "✓ Alpine base system configured with user support"
 
     - name: Configure networking
       run: |
-        # Very basic network configuration - we'll use busybox udhcpc which is included
+        # Network configuration with proper DHCP for both interfaces
         sudo tee /mnt/root/etc/network/interfaces << 'EOF'
         auto lo
         iface lo inet loopback
         
-        auto eth0
+        # Ethernet - only configure if present
+        allow-hotplug eth0
         iface eth0 inet dhcp
+        
+        # Wireless - only configure if present
+        allow-hotplug wlan0
+        iface wlan0 inet dhcp
+          pre-up wpa_supplicant -B -D nl80211 -i wlan0 -c /etc/wpa_supplicant/wpa_supplicant.conf
+          pre-up sleep 2
+          post-up udhcpc -i wlan0 -b
+          post-down killall -q wpa_supplicant
+          post-down killall -q udhcpc
         EOF
         
-        # Create a simple dhcp script for busybox udhcpc
+        # Create wpa_supplicant configuration
+        sudo mkdir -p /mnt/root/etc/wpa_supplicant
+        sudo tee /mnt/root/etc/wpa_supplicant/wpa_supplicant.conf << 'EOF'
+        ctrl_interface=/var/run/wpa_supplicant
+        ctrl_interface_group=0
+        update_config=1
+        country=GB
+        
+        # Add your network configuration here
+        # network={
+        #     ssid="YourNetworkSSID"
+        #     psk="YourNetworkPassword"
+        # }
+        EOF
+        
+        # Create a proper udhcpc script
         sudo mkdir -p /mnt/root/usr/share/udhcpc
         sudo tee /mnt/root/usr/share/udhcpc/default.script << 'EOF'
         #!/bin/sh
-        # Minimal DHCP handler script
+        # DHCP handler script for busybox udhcpc
         
         [ -z "$1" ] && exit 1
         
@@ -396,28 +446,44 @@ jobs:
         
         case "$1" in
           deconfig)
-            ip addr flush dev $interface
+            # Clear IP configuration
+            ip -4 addr flush dev $interface
+            ip link set $interface up
             ;;
-          bound|renew)
-            ip addr add $ip/${mask:-24} dev $interface
             
+          bound|renew)
+            # Set IP address
+            ip addr add ${ip}/${mask:-24} brd ${broadcast:-+} dev $interface
+            
+            # Remove any existing default routes for this interface
+            while ip route del default dev $interface 2>/dev/null; do :; done
+            
+            # Set default route if we have one
             if [ -n "$router" ]; then
-              ip route add default via $router dev $interface
+              for r in $router; do
+                ip route add default via $r dev $interface
+                break  # Only use first router
+              done
             fi
             
+            # Update DNS
             if [ -n "$dns" ]; then
-              > $RESOLV_CONF
-              for i in $dns; do
-                echo "nameserver $i" >> $RESOLV_CONF
+              > $RESOLV_CONF.new
+              [ -n "$domain" ] && echo "domain $domain" >> $RESOLV_CONF.new
+              for d in $dns; do
+                echo "nameserver $d" >> $RESOLV_CONF.new
               done
+              mv $RESOLV_CONF.new $RESOLV_CONF
             fi
             ;;
         esac
+        
+        exit 0
         EOF
         
         sudo chmod +x /mnt/root/usr/share/udhcpc/default.script
         
-        echo "✓ Basic networking configured"
+        echo "✓ Networking configured with proper DHCP support"
 
     - name: Integrate Raspberry Pi OS components
       run: |
@@ -459,22 +525,13 @@ jobs:
         # Fix rfkill configuration that blocks WiFi
         echo "Fixing rfkill configuration..."
         if [ -f /mnt/root/etc/modprobe.d/rfkill_default.conf ]; then
-          echo "Found rfkill_default.conf, checking contents..."
-          cat /mnt/root/etc/modprobe.d/rfkill_default.conf
-          
-          # Comment out or modify lines that block WiFi
-          sudo sed -i 's/^options rfkill default_state=0/# options rfkill default_state=0/' /mnt/root/etc/modprobe.d/rfkill_default.conf
-          
-          # Or replace it entirely with WiFi-friendly config
+          echo "Found rfkill_default.conf, updating..."
           sudo tee /mnt/root/etc/modprobe.d/rfkill_default.conf << 'EOF'
         # RasPINE rfkill configuration
         # default_state=1 means radios are UNBLOCKED by default
         # To block all radios by default, set to 0
         options rfkill default_state=1 master_switch_mode=2
         EOF
-          
-          echo "Updated rfkill configuration:"
-          cat /mnt/root/etc/modprobe.d/rfkill_default.conf
         fi
         
         # Add Broadcom WiFi modules to load at boot
@@ -574,152 +631,246 @@ jobs:
         
         echo "✓ Raspberry Pi OS components integrated with WiFi support"
 
-    - name: Configure networking
+    - name: Create boot configuration system
       run: |
-        # Network configuration with proper DHCP for both interfaces
-        sudo tee /mnt/root/etc/network/interfaces << 'EOF'
-        auto lo
-        iface lo inet loopback
-        
-        # Ethernet - only configure if present
-        allow-hotplug eth0
-        iface eth0 inet dhcp
-        
-        # Wireless - only configure if present
-        allow-hotplug wlan0
-        iface wlan0 inet dhcp
-          pre-up wpa_supplicant -B -D nl80211 -i wlan0 -c /etc/wpa_supplicant/wpa_supplicant.conf
-          pre-up sleep 2
-          post-up udhcpc -i wlan0 -b
-          post-down killall -q wpa_supplicant
-          post-down killall -q udhcpc
-        EOF
-        
-        # Create wpa_supplicant configuration
-        sudo mkdir -p /mnt/root/etc/wpa_supplicant
-        sudo tee /mnt/root/etc/wpa_supplicant/wpa_supplicant.conf << 'EOF'
-        ctrl_interface=/var/run/wpa_supplicant
-        ctrl_interface_group=0
-        update_config=1
-        country=GB
-        
-        # Add your network configuration here
-        # network={
-        #     ssid="YourNetworkSSID"
-        #     psk="YourNetworkPassword"
-        # }
-        EOF
-        
-        # Create a proper udhcpc script
-        sudo mkdir -p /mnt/root/usr/share/udhcpc
-        sudo tee /mnt/root/usr/share/udhcpc/default.script << 'EOF'
+        # Create the configuration processor script
+        sudo tee /mnt/root/usr/local/bin/raspine-config << 'EOF'
         #!/bin/sh
-        # DHCP handler script for busybox udhcpc
+        # RasPINE Boot Configuration Processor
         
-        [ -z "$1" ] && exit 1
+        CONFIG_FILE="/boot/firmware/raspine-config.txt"
+        PROCESSED_FLAG="/etc/raspine-configured"
+        LOG_FILE="/var/log/raspine-config.log"
         
-        RESOLV_CONF="/etc/resolv.conf"
+        log() {
+            echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a $LOG_FILE
+        }
         
-        case "$1" in
-          deconfig)
-            # Clear IP configuration
-            ip -4 addr flush dev $interface
-            ip link set $interface up
-            ;;
-            
-          bound|renew)
-            # Set IP address
-            ip addr add ${ip}/${mask:-24} brd ${broadcast:-+} dev $interface
-            
-            # Remove any existing default routes for this interface
-            while ip route del default dev $interface 2>/dev/null; do :; done
-            
-            # Set default route if we have one
-            if [ -n "$router" ]; then
-              for r in $router; do
-                ip route add default via $r dev $interface
-                break  # Only use first router
-              done
-            fi
-            
-            # Update DNS
-            if [ -n "$dns" ]; then
-              > $RESOLV_CONF.new
-              [ -n "$domain" ] && echo "domain $domain" >> $RESOLV_CONF.new
-              for d in $dns; do
-                echo "nameserver $d" >> $RESOLV_CONF.new
-              done
-              mv $RESOLV_CONF.new $RESOLV_CONF
-            fi
-            ;;
-        esac
-        
-        exit 0
-        EOF
-        
-        sudo chmod +x /mnt/root/usr/share/udhcpc/default.script
-        
-        # Create a manual DHCP refresh script
-        sudo tee /mnt/root/usr/local/bin/dhcp-refresh << 'EOF'
-        #!/bin/sh
-        # Manual DHCP refresh for WiFi
-        
-        echo "Refreshing DHCP on wlan0..."
-        
-        # Kill any existing udhcpc for wlan0
-        killall -q udhcpc
-        
-        # Start udhcpc manually
-        udhcpc -i wlan0 -S -f -q &
-        
-        echo "DHCP client started. Check IP with: ip addr show wlan0"
-        EOF
-        
-        sudo chmod +x /mnt/root/usr/local/bin/dhcp-refresh
-        
-        # Create WiFi setup helper that ensures DHCP
-        sudo tee /mnt/root/usr/local/bin/wifi-setup << 'EOF'
-        #!/bin/sh
-        # WiFi setup helper for RasPINE
-        
-        if [ "$#" -ne 2 ]; then
-            echo "Usage: wifi-setup <SSID> <PASSWORD>"
-            echo "Example: wifi-setup MyNetwork MyPassword"
-            exit 1
+        # Check if config file exists
+        if [ ! -f "$CONFIG_FILE" ]; then
+            exit 0
         fi
         
-        SSID="$1"
-        PSK="$2"
-        
-        # Add network to wpa_supplicant.conf
-        wpa_passphrase "$SSID" "$PSK" >> /etc/wpa_supplicant/wpa_supplicant.conf
-        
-        echo "WiFi network added. Restarting interface..."
-        
-        # Bring down interface
-        ifdown wlan0 2>/dev/null
-        killall -q wpa_supplicant
-        killall -q udhcpc
-        
-        # Bring up interface
-        ifup wlan0
-        
-        # Ensure DHCP is running
-        sleep 3
-        if ! pidof udhcpc > /dev/null; then
-            echo "Starting DHCP client manually..."
-            udhcpc -i wlan0 -S -f -q &
+        # Check if already processed
+        if [ -f "$PROCESSED_FLAG" ]; then
+            log "Configuration already processed, skipping"
+            exit 0
         fi
         
-        echo "Done! Check connection with: ip addr show wlan0"
+        log "Processing RasPINE configuration..."
+        
+        # Parse configuration file
+        while IFS='=' read -r key value; do
+            # Skip comments and empty lines
+            case "$key" in
+                "#"*|"") continue ;;
+            esac
+            
+            # Remove leading/trailing whitespace
+            key=$(echo "$key" | tr -d ' ')
+            value=$(echo "$value" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+            
+            case "$key" in
+                # WiFi configuration
+                wifi_ssid*)
+                    priority=$(echo "$key" | sed 's/wifi_ssid_*//')
+                    [ -z "$priority" ] && priority=1
+                    
+                    # Store SSID for processing
+                    eval "WIFI_SSID_${priority}=\"$value\""
+                    log "Found WiFi network: $value (priority $priority)"
+                    ;;
+                    
+                wifi_password*)
+                    priority=$(echo "$key" | sed 's/wifi_password_*//')
+                    [ -z "$priority" ] && priority=1
+                    
+                    # Store password for processing
+                    eval "WIFI_PASS_${priority}=\"$value\""
+                    ;;
+                    
+                wifi_country)
+                    log "Setting WiFi country: $value"
+                    echo "country=$value" >> /etc/wpa_supplicant/wpa_supplicant.conf
+                    ;;
+                    
+                enable_open_networks)
+                    if [ "$value" = "true" ]; then
+                        log "Enabling open network connections"
+                        echo "# Open networks enabled" >> /etc/wpa_supplicant/wpa_supplicant.conf
+                    fi
+                    ;;
+                    
+                # User configuration
+                user_password)
+                    log "Setting raspine user password"
+                    # Create raspine user if it doesn't exist
+                    if ! id raspine >/dev/null 2>&1; then
+                        adduser -D -s /bin/sh raspine
+                        addgroup raspine wheel
+                    fi
+                    echo "raspine:$value" | chpasswd
+                    ;;
+                    
+                enable_ssh_password)
+                    if [ "$value" = "true" ]; then
+                        log "Enabling SSH password authentication"
+                        # Dropbear: remove -s (disable password) and -g (disable password for root)
+                        sed -i 's/DROPBEAR_OPTS=.*/DROPBEAR_OPTS="-B"/' /etc/conf.d/dropbear
+                    else
+                        log "SSH key-only authentication enabled"
+                        sed -i 's/DROPBEAR_OPTS=.*/DROPBEAR_OPTS="-B -s"/' /etc/conf.d/dropbear
+                    fi
+                    ;;
+                    
+                ssh_key)
+                    log "Adding SSH public key"
+                    # Create raspine user if needed
+                    if ! id raspine >/dev/null 2>&1; then
+                        adduser -D -s /bin/sh raspine
+                        addgroup raspine wheel
+                    fi
+                    
+                    # Add SSH key
+                    mkdir -p /home/raspine/.ssh
+                    echo "$value" >> /home/raspine/.ssh/authorized_keys
+                    chmod 700 /home/raspine/.ssh
+                    chmod 600 /home/raspine/.ssh/authorized_keys
+                    chown -R raspine:raspine /home/raspine/.ssh
+                    ;;
+                    
+                # System configuration
+                hostname)
+                    log "Setting hostname: $value"
+                    echo "$value" > /etc/hostname
+                    hostname "$value"
+                    ;;
+                    
+                timezone)
+                    log "Setting timezone: $value"
+                    # Alpine uses different timezone setup
+                    if [ -f "/usr/share/zoneinfo/$value" ]; then
+                        cp "/usr/share/zoneinfo/$value" /etc/localtime
+                        echo "$value" > /etc/timezone
+                    fi
+                    ;;
+                    
+                locale)
+                    log "Setting locale: $value"
+                    # Note: Alpine has limited locale support
+                    echo "export LANG=$value" >> /etc/profile.d/locale.sh
+                    ;;
+            esac
+        done < "$CONFIG_FILE"
+        
+        # Process WiFi networks (add them in priority order)
+        log "Configuring WiFi networks..."
+        for i in 10 9 8 7 6 5 4 3 2 1; do
+            eval "ssid=\$WIFI_SSID_${i}"
+            eval "pass=\$WIFI_PASS_${i}"
+            
+            if [ -n "$ssid" ] && [ -n "$pass" ]; then
+                log "Adding network: $ssid (priority $i)"
+                wpa_passphrase "$ssid" "$pass" | sed "s/}/\tpriority=$i\n}/" >> /etc/wpa_supplicant/wpa_supplicant.conf
+            fi
+        done
+        
+        # Restart services if needed
+        if [ -n "$WIFI_SSID_1" ]; then
+            log "Restarting WiFi..."
+            rc-service wpa_supplicant restart || true
+            ifdown wlan0 2>/dev/null || true
+            ifup wlan0 || true
+        fi
+        
+        # Mark as configured
+        date > "$PROCESSED_FLAG"
+        
+        # Rename config file for security (keep for reference)
+        mv "$CONFIG_FILE" "${CONFIG_FILE}.processed"
+        log "Configuration complete! File renamed to raspine-config.txt.processed"
+        
+        # Restart SSH if configuration changed
+        rc-service dropbear restart
+        
+        EOF
+        sudo chmod +x /mnt/root/usr/local/bin/raspine-config
+        
+        # Create OpenRC service for boot configuration
+        sudo tee /mnt/root/etc/init.d/raspine-config << 'EOF'
+        #!/sbin/openrc-run
+        
+        description="RasPINE Boot Configuration"
+        
+        depend() {
+            need localmount
+            after hwclock modules
+            before networking wpa_supplicant
+        }
+        
+        start() {
+            ebegin "Processing RasPINE configuration"
+            /usr/local/bin/raspine-config
+            eend $?
+        }
+        EOF
+        sudo chmod +x /mnt/root/etc/init.d/raspine-config
+        
+        # Add service to boot
+        sudo ln -s /etc/init.d/raspine-config /mnt/root/etc/runlevels/boot/raspine-config
+        
+        # Create sample configuration file for the boot partition
+        sudo tee /mnt/boot/raspine-config.txt.sample << 'EOF'
+        # RasPINE Boot Configuration
+        # Copy this file to the boot partition as 'raspine-config.txt'
+        # Remove the # from lines you want to use
+        
+        # === WIFI CONFIGURATION ===
+        # Primary network (highest priority)
+        #wifi_ssid=YourWorkNetwork
+        #wifi_password=YourWorkPassword
+        
+        # Secondary networks (numbered for priority - higher numbers = higher priority)
+        #wifi_ssid_2=YourHomeNetwork
+        #wifi_password_2=YourHomePassword
+        
+        #wifi_ssid_3=YourMobileHotspot  
+        #wifi_password_3=YourHotspotPassword
+        
+        # Additional networks (add as many as needed)
+        #wifi_ssid_4=CoffeeShopWiFi
+        #wifi_password_4=CoffeeShopPassword
+        
+        # WiFi country code (affects available channels and power limits)
+        wifi_country=GB
+        
+        # Allow connection to open networks (no password) - use with caution!
+        enable_open_networks=false
+        
+        # === USER SECURITY ===
+        # Set password for raspine user (required for SSH password auth)
+        user_password=raspberry
+        
+        # Enable SSH password authentication (default: key-only)
+        enable_ssh_password=true
+        
+        # Add SSH public key for secure access (recommended)
+        #ssh_key=ssh-rsa AAAAB3NzaC1yc2EAAAA... your-email@example.com
+        
+        # === SYSTEM CONFIGURATION ===
+        hostname=raspine
+        timezone=Europe/London
+        locale=en_GB.UTF-8
+        
+        # === SECURITY NOTES ===
+        # • Root account is disabled by default (secure)
+        # • raspine user has passwordless sudo access
+        # • SSH password authentication is disabled unless explicitly enabled
+        # • This file may be automatically deleted after processing for security
+        # • WiFi networks are tried in order of priority (higher numbers first)
         EOF
         
-        sudo chmod +x /mnt/root/usr/local/bin/wifi-setup
-        
-        echo "✓ Networking configured with proper DHCP support"
-    
-            echo "raspine:raspberry" | 
-
+        echo "✓ Boot configuration system created"
 
     - name: Create SSL certificate fix service
       run: |
@@ -840,7 +991,7 @@ jobs:
         SHA256: $(cut -d' ' -f1 < "RasPINE-${BUILD_DATE}.img.xz.sha256")
         
         Default Credentials:
-        Username: root
+        Username: raspine (or root)
         Password: raspberry
         
         Network: DHCP on eth0
@@ -883,16 +1034,19 @@ jobs:
           - Minimal 2GB image size
           - DHCP networking enabled
           - SSH access enabled (Dropbear)
+          - Boot-time configuration via raspine-config.txt
+          - Non-root 'raspine' user with sudo access
           
           ## Default Credentials
-          - Username: `root`
+          - Username: `raspine` (or `root`)
           - Password: `raspberry`
           
           ## Installation
           1. Download the `.img.xz` file
           2. Extract: `xz -d RasPINE-${{ env.BUILD_DATE }}.img.xz`
           3. Write to SD card: `dd if=RasPINE-${{ env.BUILD_DATE }}.img of=/dev/sdX bs=4M status=progress`
-          4. Boot your Raspberry Pi
+          4. (Optional) Copy `raspine-config.txt.sample` to `raspine-config.txt` and edit
+          5. Boot your Raspberry Pi
           
           ## Verification
           Check the SHA256 checksum before use.
