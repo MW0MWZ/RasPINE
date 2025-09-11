@@ -74,6 +74,154 @@ get_release_number() {
   echo "$release_num"
 }
 
+# Build firmware package first if it exists (so kernels can reference it)
+if [ -f "${OUTPUT_DIR}/raspios-firmware.tar.gz" ]; then
+  FIRMWARE_VERSION=$(date +%Y.%m.%d)
+  
+  # Get release number for firmware package
+  PKG_RELEASE=$(get_release_number "raspios-firmware" "$FIRMWARE_VERSION")
+  
+  echo "Creating APKBUILD for raspios-firmware (version ${FIRMWARE_VERSION}-r${PKG_RELEASE})"
+  
+  # Create package directory
+  PKG_DIR="${APKBUILD_DIR}/raspios-firmware"
+  mkdir -p "$PKG_DIR"
+  
+  # Copy the source tarball
+  cp "${OUTPUT_DIR}/raspios-firmware.tar.gz" "$PKG_DIR/"
+  
+  # Check if we have config files to include
+  CONFIG_FILES=""
+  if [ -f "packages/community/raspios-firmware/config.txt" ] || [ -f "packages/raspios-firmware/config.txt" ]; then
+    echo "  Including config.txt"
+    if [ -f "packages/community/raspios-firmware/config.txt" ]; then
+      cp "packages/community/raspios-firmware/config.txt" "$PKG_DIR/"
+    elif [ -f "packages/raspios-firmware/config.txt" ]; then
+      cp "packages/raspios-firmware/config.txt" "$PKG_DIR/"
+    fi
+    CONFIG_FILES="${CONFIG_FILES} config.txt"
+  fi
+  
+  if [ -f "packages/community/raspios-firmware/cmdline.txt" ] || [ -f "packages/raspios-firmware/cmdline.txt" ]; then
+    echo "  Including cmdline.txt"
+    if [ -f "packages/community/raspios-firmware/cmdline.txt" ]; then
+      cp "packages/community/raspios-firmware/cmdline.txt" "$PKG_DIR/"
+    elif [ -f "packages/raspios-firmware/cmdline.txt" ]; then
+      cp "packages/raspios-firmware/cmdline.txt" "$PKG_DIR/"
+    fi
+    CONFIG_FILES="${CONFIG_FILES} cmdline.txt"
+  fi
+  
+  # Create APKBUILD with proper maintainer
+  cat > "${PKG_DIR}/APKBUILD" << 'APKBUILD_HEADER'
+# Maintainer: Andy Taylor <andy@mw0mwz.co.uk>
+APKBUILD_HEADER
+  
+  # FIXED: Firmware has no dependencies on kernels
+  cat >> "${PKG_DIR}/APKBUILD" << EOF
+pkgname=raspios-firmware
+pkgver=${FIRMWARE_VERSION}
+pkgrel=${PKG_RELEASE}
+pkgdesc="Raspberry Pi firmware from Raspberry Pi OS"
+url="https://www.raspberrypi.org/"
+arch="${ARCH}"
+license="custom"
+depends=""
+provides="raspberry-pi-firmware"
+makedepends=""
+subpackages=""
+source="raspios-firmware.tar.gz${CONFIG_FILES}"
+options="!check !strip !tracedeps !fhs"
+
+unpack() {
+	cd "\$srcdir"
+	tar -xzf raspios-firmware.tar.gz
+}
+
+build() {
+	# Nothing to build, just repackaging
+	return 0
+}
+
+package() {
+	cd "\$srcdir"
+	
+	# Ensure pkgdir exists
+	mkdir -p "\$pkgdir"
+	
+	# Copy all files from the extracted directory to pkgdir
+	if [ -d "raspios-firmware" ]; then
+		cd "raspios-firmware"
+		# Copy directory structure  
+		find . -type d -exec mkdir -p "\$pkgdir/{}" \;
+		# Copy files
+		find . -type f -exec cp -a {} "\$pkgdir/{}" \;
+		# Copy symlinks
+		find . -type l -exec cp -a {} "\$pkgdir/{}" \;
+		cd "\$srcdir"
+	fi
+	
+	# Install config files if present
+	if [ -f "\$srcdir/config.txt" ]; then
+		install -Dm644 "\$srcdir/config.txt" "\$pkgdir/boot/firmware/config.txt"
+	fi
+	
+	if [ -f "\$srcdir/cmdline.txt" ]; then
+		install -Dm644 "\$srcdir/cmdline.txt" "\$pkgdir/boot/firmware/cmdline.txt"
+	fi
+	
+	# Create symlinks in /boot pointing to /boot/firmware
+	if [ -f "\$srcdir/config.txt" ] || [ -f "\$srcdir/cmdline.txt" ]; then
+		mkdir -p "\$pkgdir/boot"
+		cd "\$pkgdir/boot"
+		
+		if [ -f "\$pkgdir/boot/firmware/config.txt" ]; then
+			ln -sf firmware/config.txt config.txt
+		fi
+		
+		if [ -f "\$pkgdir/boot/firmware/cmdline.txt" ]; then
+			ln -sf firmware/cmdline.txt cmdline.txt
+		fi
+		
+		cd "\$srcdir"
+	fi
+	
+	# Ensure at least an empty package is created
+	mkdir -p "\$pkgdir/usr/share/doc/raspios-firmware"
+	echo "Raspberry Pi firmware from Raspberry Pi OS" > "\$pkgdir/usr/share/doc/raspios-firmware/README"
+}
+EOF
+  
+  # Generate checksums
+  cd "$PKG_DIR"
+  
+  # Generate checksum for the tarball
+  CHECKSUM_TAR=$(sha512sum raspios-firmware.tar.gz | cut -d' ' -f1)
+  
+  # Generate checksums for config files if they exist
+  CHECKSUMS="${CHECKSUM_TAR}  raspios-firmware.tar.gz"
+  
+  if [ -f "config.txt" ]; then
+    CHECKSUM_CONFIG=$(sha512sum config.txt | cut -d' ' -f1)
+    CHECKSUMS="${CHECKSUMS}
+${CHECKSUM_CONFIG}  config.txt"
+  fi
+  
+  if [ -f "cmdline.txt" ]; then
+    CHECKSUM_CMDLINE=$(sha512sum cmdline.txt | cut -d' ' -f1)
+    CHECKSUMS="${CHECKSUMS}
+${CHECKSUM_CMDLINE}  cmdline.txt"
+  fi
+  
+  # Add checksums to APKBUILD
+  echo "" >> APKBUILD
+  echo "sha512sums=\"${CHECKSUMS}\"" >> APKBUILD
+  
+  cd - > /dev/null
+  
+  echo "Created APKBUILD for raspios-firmware (version ${FIRMWARE_VERSION}-r${PKG_RELEASE})"
+fi
+
 # Create APKBUILD for each kernel variant
 for variant in $VARIANTS; do
   if [ -f "${OUTPUT_DIR}/raspios-kernel-${variant}.tar.gz" ]; then
@@ -212,6 +360,7 @@ POST_INSTALL_BODY
 APKBUILD_HEADER
     
     # Now append the rest with proper variable substitution
+    # FIXED: Only depend on mkinitfs, recommend firmware at runtime
     cat >> "${PKG_DIR}/APKBUILD" << EOF
 pkgname=raspios-kernel-${variant}
 pkgver=${PKG_VERSION}
@@ -220,12 +369,16 @@ pkgdesc="Raspberry Pi OS kernel ${FULL_VERSION} for RPi ${variant}"
 url="https://www.raspberrypi.org/"
 arch="${ARCH}"
 license="GPL-2.0"
-depends="raspios-firmware mkinitfs"
+depends="mkinitfs"
 makedepends=""
 subpackages=""
 source="raspios-kernel-${variant}.tar.gz"
 install="\$pkgname.post-install"
 options="!check !strip !tracedeps !fhs"
+
+# Runtime recommendation (not build dependency)
+# Kernels work better with firmware but don't strictly require it
+# install_if would create build dependencies, so we don't use it
 
 unpack() {
 	cd "\$srcdir"
@@ -250,13 +403,24 @@ package() {
 		find . -type d -exec mkdir -p "\$pkgdir/{}" \;
 		# Copy files
 		find . -type f -exec cp -a {} "\$pkgdir/{}" \;
-		# Copy symlinks
-		find . -type l -exec cp -a {} "\$pkgdir/{}" \;
+		# Copy symlinks - but skip circular ones
+		find . -type l | while read link; do
+			target=\$(readlink "\$link")
+			linkname=\$(basename "\$link")
+			# Skip circular symlinks
+			if [ "\$target" != "." ] && [ "\$target" != "\$linkname" ] && [ "\$linkname" != "boot" ]; then
+				cp -a "\$link" "\$pkgdir/\$link"
+			fi
+		done
 	fi
 	
 	# Ensure at least an empty package is created
 	mkdir -p "\$pkgdir/usr/share/doc/raspios-kernel-${variant}"
 	echo "Raspberry Pi OS kernel ${FULL_VERSION} for ${variant}" > "\$pkgdir/usr/share/doc/raspios-kernel-${variant}/README"
+	
+	# Add a note about firmware recommendation
+	echo "" >> "\$pkgdir/usr/share/doc/raspios-kernel-${variant}/README"
+	echo "For best results, install raspios-firmware package" >> "\$pkgdir/usr/share/doc/raspios-kernel-${variant}/README"
 }
 EOF
     
@@ -274,144 +438,6 @@ EOF
     echo "Created APKBUILD for raspios-kernel-${variant} (version ${PKG_VERSION}-r${PKG_RELEASE})"
   fi
 done
-
-# Create APKBUILD for firmware (if exists)
-if [ -f "${OUTPUT_DIR}/raspios-firmware.tar.gz" ]; then
-  FIRMWARE_VERSION=$(date +%Y.%m.%d)
-  
-  # Get release number for firmware package
-  PKG_RELEASE=$(get_release_number "raspios-firmware" "$FIRMWARE_VERSION")
-  
-  echo "Creating APKBUILD for raspios-firmware (version ${FIRMWARE_VERSION}-r${PKG_RELEASE})"
-  
-  # Create package directory
-  PKG_DIR="${APKBUILD_DIR}/raspios-firmware"
-  mkdir -p "$PKG_DIR"
-  
-  # Copy the source tarball
-  cp "${OUTPUT_DIR}/raspios-firmware.tar.gz" "$PKG_DIR/"
-  
-  # Check if we have config files to include
-  CONFIG_FILES=""
-  if [ -f "packages/community/raspios-firmware/config.txt" ]; then
-    echo "  Including config.txt"
-    cp "packages/community/raspios-firmware/config.txt" "$PKG_DIR/"
-    CONFIG_FILES="${CONFIG_FILES} config.txt"
-  fi
-  
-  if [ -f "packages/community/raspios-firmware/cmdline.txt" ]; then
-    echo "  Including cmdline.txt"
-    cp "packages/community/raspios-firmware/cmdline.txt" "$PKG_DIR/"
-    CONFIG_FILES="${CONFIG_FILES} cmdline.txt"
-  fi
-  
-  # Create APKBUILD with proper maintainer
-  cat > "${PKG_DIR}/APKBUILD" << 'APKBUILD_HEADER'
-# Maintainer: Andy Taylor <andy@mw0mwz.co.uk>
-APKBUILD_HEADER
-  
-  cat >> "${PKG_DIR}/APKBUILD" << EOF
-pkgname=raspios-firmware
-pkgver=${FIRMWARE_VERSION}
-pkgrel=${PKG_RELEASE}
-pkgdesc="Raspberry Pi firmware from Raspberry Pi OS"
-url="https://www.raspberrypi.org/"
-arch="${ARCH}"
-license="custom"
-depends=""
-makedepends=""
-subpackages=""
-source="raspios-firmware.tar.gz${CONFIG_FILES}"
-options="!check !strip !tracedeps !fhs"
-
-unpack() {
-	cd "\$srcdir"
-	tar -xzf raspios-firmware.tar.gz
-}
-
-build() {
-	# Nothing to build, just repackaging
-	return 0
-}
-
-package() {
-	cd "\$srcdir"
-	
-	# Ensure pkgdir exists
-	mkdir -p "\$pkgdir"
-	
-	# Copy all files from the extracted directory to pkgdir
-	if [ -d "raspios-firmware" ]; then
-		cd "raspios-firmware"
-		# Copy directory structure  
-		find . -type d -exec mkdir -p "\$pkgdir/{}" \;
-		# Copy files
-		find . -type f -exec cp -a {} "\$pkgdir/{}" \;
-		# Copy symlinks
-		find . -type l -exec cp -a {} "\$pkgdir/{}" \;
-		cd "\$srcdir"
-	fi
-	
-	# Install config files if present
-	if [ -f "\$srcdir/config.txt" ]; then
-		install -Dm644 "\$srcdir/config.txt" "\$pkgdir/boot/firmware/config.txt"
-	fi
-	
-	if [ -f "\$srcdir/cmdline.txt" ]; then
-		install -Dm644 "\$srcdir/cmdline.txt" "\$pkgdir/boot/firmware/cmdline.txt"
-	fi
-	
-	# Create symlinks in /boot pointing to /boot/firmware
-	if [ -f "\$srcdir/config.txt" ] || [ -f "\$srcdir/cmdline.txt" ]; then
-		mkdir -p "\$pkgdir/boot"
-		cd "\$pkgdir/boot"
-		
-		if [ -f "\$pkgdir/boot/firmware/config.txt" ]; then
-			ln -sf firmware/config.txt config.txt
-		fi
-		
-		if [ -f "\$pkgdir/boot/firmware/cmdline.txt" ]; then
-			ln -sf firmware/cmdline.txt cmdline.txt
-		fi
-		
-		cd "\$srcdir"
-	fi
-	
-	# Ensure at least an empty package is created
-	mkdir -p "\$pkgdir/usr/share/doc/raspios-firmware"
-	echo "Raspberry Pi firmware from Raspberry Pi OS" > "\$pkgdir/usr/share/doc/raspios-firmware/README"
-}
-EOF
-  
-  # Generate checksums
-  cd "$PKG_DIR"
-  
-  # Generate checksum for the tarball
-  CHECKSUM_TAR=$(sha512sum raspios-firmware.tar.gz | cut -d' ' -f1)
-  
-  # Generate checksums for config files if they exist
-  CHECKSUMS="${CHECKSUM_TAR}  raspios-firmware.tar.gz"
-  
-  if [ -f "config.txt" ]; then
-    CHECKSUM_CONFIG=$(sha512sum config.txt | cut -d' ' -f1)
-    CHECKSUMS="${CHECKSUMS}
-${CHECKSUM_CONFIG}  config.txt"
-  fi
-  
-  if [ -f "cmdline.txt" ]; then
-    CHECKSUM_CMDLINE=$(sha512sum cmdline.txt | cut -d' ' -f1)
-    CHECKSUMS="${CHECKSUMS}
-${CHECKSUM_CMDLINE}  cmdline.txt"
-  fi
-  
-  # Add checksums to APKBUILD
-  echo "" >> APKBUILD
-  echo "sha512sums=\"${CHECKSUMS}\"" >> APKBUILD
-  
-  cd - > /dev/null
-  
-  echo "Created APKBUILD for raspios-firmware (version ${FIRMWARE_VERSION}-r${PKG_RELEASE})"
-fi
 
 # Create APKBUILD for bootloader (if exists)
 if [ -f "${OUTPUT_DIR}/raspios-bootloader.tar.gz" ]; then
