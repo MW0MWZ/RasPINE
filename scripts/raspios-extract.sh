@@ -105,10 +105,14 @@ for variant in $VARIANTS; do
     done
   done
   
-  # Copy headers
-  for pkg_dir in ${EXTRACT_DIR}/linux-headers-*-rpi-${variant}* ${EXTRACT_DIR}/linux-headers-*-common-rpi*; do
+  # Copy variant-specific headers only
+  for pkg_dir in ${EXTRACT_DIR}/linux-headers-*-rpi-${variant}*; do
     [ -d "$pkg_dir" ] || continue
-    echo "  Copying headers from $(basename $pkg_dir)"
+    # Skip common headers packages
+    if [[ "$(basename $pkg_dir)" =~ "common" ]]; then
+      continue
+    fi
+    echo "  Copying variant-specific headers from $(basename $pkg_dir)"
     cp -r "$pkg_dir"/* "$VARIANT_DIR/" 2>/dev/null || true
   done
   
@@ -127,6 +131,22 @@ for variant in $VARIANTS; do
     echo "  Warning: No kernel files found for ${variant}"
   fi
 done
+
+# Process common headers separately
+echo "Processing common kernel headers..."
+COMMON_HEADERS_DIR="${OUTPUT_DIR}/raspios-kernel-headers-common"
+mkdir -p "$COMMON_HEADERS_DIR"
+
+for pkg_dir in ${EXTRACT_DIR}/linux-headers-*-common-rpi*; do
+  [ -d "$pkg_dir" ] || continue
+  echo "  Copying common headers from $(basename $pkg_dir)"
+  cp -r "$pkg_dir"/* "$COMMON_HEADERS_DIR/" 2>/dev/null || true
+done
+
+if [ -n "$(ls -A $COMMON_HEADERS_DIR 2>/dev/null)" ]; then
+  echo "Creating common headers tarball..."
+  tar czf "${OUTPUT_DIR}/raspios-kernel-headers-common.tar.gz" -C "$OUTPUT_DIR" "raspios-kernel-headers-common"
+fi
 
 # Only process firmware if we actually downloaded any firmware packages
 FIRMWARE_FOUND=false
@@ -182,9 +202,27 @@ if [ "$FIRMWARE_FOUND" = true ]; then
     fi
   done
   
+  # Collect overlays from all kernel packages and put them in firmware
+  echo "Collecting overlays for firmware package..."
+  mkdir -p "$FIRMWARE_DIR/boot/firmware/overlays"
+  for pkg_dir in ${EXTRACT_DIR}/linux-image-*; do
+    if [ -d "$pkg_dir" ]; then
+      for kernel_dir in "$pkg_dir"/usr/lib/linux-image-*/overlays; do
+        if [ -d "$kernel_dir" ]; then
+          echo "  Adding overlays from $(basename $(dirname "$kernel_dir"))"
+          cp -r "$kernel_dir"/* "$FIRMWARE_DIR/boot/firmware/overlays/" 2>/dev/null || true
+        fi
+      done
+    fi
+  done
+  
   # Also check if there's a /boot/firmware directory already and merge it
   if [ -d "$FIRMWARE_DIR/boot/firmware" ]; then
     echo "Firmware will be installed to /boot/firmware"
+    if [ -d "$FIRMWARE_DIR/boot/firmware/overlays" ]; then
+      overlay_count=$(find "$FIRMWARE_DIR/boot/firmware/overlays" -name "*.dtbo" 2>/dev/null | wc -l)
+      echo "  Overlay files included: $overlay_count"
+    fi
   fi
   
   if [ -n "$(ls -A $FIRMWARE_DIR 2>/dev/null)" ]; then

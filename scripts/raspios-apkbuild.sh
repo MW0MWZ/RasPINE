@@ -119,39 +119,91 @@ for variant in $VARIANTS; do
 #!/bin/sh
 set -e
 
-# Find the kernel version from installed files
+# Find the actual kernel version from installed modules
 POST_INSTALL_HEADER
     
     cat >> "${PKG_DIR}/raspios-kernel-${variant}.post-install" << POST_INSTALL_BODY
-KERNEL_VERSION="${FULL_VERSION}"
+# The full kernel version includes the variant suffix
+KERNEL_BASE="${FULL_VERSION}"
+KERNEL_VARIANT="${variant}"
+
+# Find the exact kernel version from the modules directory
+if [ -d /lib/modules ]; then
+    # Look for module directory matching our kernel version and variant
+    for moddir in /lib/modules/*; do
+        if [ -d "\$moddir" ]; then
+            dirname=\$(basename "\$moddir")
+            # Check if this matches our kernel version pattern
+            if echo "\$dirname" | grep -q "^\${KERNEL_BASE}.*-rpi-\${KERNEL_VARIANT}"; then
+                KERNEL_VERSION="\$dirname"
+                echo "Found kernel modules for version: \${KERNEL_VERSION}"
+                break
+            fi
+        fi
+    done
+    
+    # Fallback to the expected format if not found
+    if [ -z "\${KERNEL_VERSION}" ]; then
+        KERNEL_VERSION="\${KERNEL_BASE}-rpi-\${KERNEL_VARIANT}"
+        echo "Using expected kernel version: \${KERNEL_VERSION}"
+    fi
+else
+    KERNEL_VERSION="\${KERNEL_BASE}-rpi-\${KERNEL_VARIANT}"
+    echo "No modules directory found, using: \${KERNEL_VERSION}"
+fi
 
 echo "Configuring Raspberry Pi kernel ${variant} version \${KERNEL_VERSION}..."
 
 # Generate initramfs if mkinitfs is available
 if [ -x /sbin/mkinitfs ]; then
     echo "Generating initramfs for \${KERNEL_VERSION}..."
-    /sbin/mkinitfs -o "/boot/initramfs-\${KERNEL_VERSION}" "\${KERNEL_VERSION}" || true
+    # Use the full kernel version for mkinitfs
+    /sbin/mkinitfs -o "/boot/initramfs-\${KERNEL_VERSION}" "\${KERNEL_VERSION}" || {
+        echo "Warning: mkinitfs failed, trying with base version..."
+        # Fallback: try with just the base version
+        /sbin/mkinitfs -o "/boot/initramfs-\${KERNEL_BASE}" "\${KERNEL_BASE}" || true
+    }
     
     # Copy initramfs to firmware partition
     if [ -f "/boot/initramfs-\${KERNEL_VERSION}" ]; then
         echo "Copying initramfs to /boot/firmware/initramfs${INITRAMFS_SUFFIX}..."
         mkdir -p /boot/firmware
-        cp "/boot/initramfs-\${KERNEL_VERSION}" "/boot/firmware/initramfs${INITRAMFS_SUFFIX}"
+        cp -f "/boot/initramfs-\${KERNEL_VERSION}" "/boot/firmware/initramfs${INITRAMFS_SUFFIX}"
+    elif [ -f "/boot/initramfs-\${KERNEL_BASE}" ]; then
+        echo "Copying initramfs to /boot/firmware/initramfs${INITRAMFS_SUFFIX}..."
+        mkdir -p /boot/firmware
+        cp -f "/boot/initramfs-\${KERNEL_BASE}" "/boot/firmware/initramfs${INITRAMFS_SUFFIX}"
     fi
 else
     echo "Warning: mkinitfs not found, skipping initramfs generation"
 fi
 
-# Copy kernel image to firmware partition
+# Copy kernel image to firmware partition (force overwrite)
+# Try multiple possible locations for the kernel
 if [ -f "/boot/vmlinuz-\${KERNEL_VERSION}" ]; then
     echo "Copying kernel to /boot/firmware/kernel${KERNEL_SUFFIX}.img..."
     mkdir -p /boot/firmware
-    cp "/boot/vmlinuz-\${KERNEL_VERSION}" "/boot/firmware/kernel${KERNEL_SUFFIX}.img"
+    cp -f "/boot/vmlinuz-\${KERNEL_VERSION}" "/boot/firmware/kernel${KERNEL_SUFFIX}.img"
+elif [ -f "/boot/vmlinuz-\${KERNEL_BASE}-rpi-${variant}" ]; then
+    echo "Copying kernel to /boot/firmware/kernel${KERNEL_SUFFIX}.img..."
+    mkdir -p /boot/firmware
+    cp -f "/boot/vmlinuz-\${KERNEL_BASE}-rpi-${variant}" "/boot/firmware/kernel${KERNEL_SUFFIX}.img"
+elif [ -f "/boot/vmlinuz-\${KERNEL_BASE}" ]; then
+    echo "Copying kernel to /boot/firmware/kernel${KERNEL_SUFFIX}.img..."
+    mkdir -p /boot/firmware
+    cp -f "/boot/vmlinuz-\${KERNEL_BASE}" "/boot/firmware/kernel${KERNEL_SUFFIX}.img"
 elif [ -f "/boot/vmlinuz" ]; then
     # Fallback if versioned kernel not found
     echo "Copying kernel to /boot/firmware/kernel${KERNEL_SUFFIX}.img..."
     mkdir -p /boot/firmware
-    cp "/boot/vmlinuz" "/boot/firmware/kernel${KERNEL_SUFFIX}.img"
+    cp -f "/boot/vmlinuz" "/boot/firmware/kernel${KERNEL_SUFFIX}.img"
+fi
+
+# Copy overlays from their stored location to firmware if not already there
+if [ -d "/usr/lib/linux-image-\${KERNEL_VERSION}/overlays" ] && [ ! -d "/boot/firmware/overlays" ]; then
+    echo "Copying overlays to /boot/firmware/overlays..."
+    mkdir -p /boot/firmware/overlays
+    cp -r "/usr/lib/linux-image-\${KERNEL_VERSION}/overlays/"* "/boot/firmware/overlays/" 2>/dev/null || true
 fi
 
 echo "Raspberry Pi kernel ${variant} configuration complete."
@@ -246,15 +298,15 @@ if [ -f "${OUTPUT_DIR}/raspios-firmware.tar.gz" ]; then
   
   # Check if we have config files to include
   CONFIG_FILES=""
-  if [ -f "packages/raspios-firmware/config.txt" ]; then
+  if [ -f "packages/community/raspios-firmware/config.txt" ]; then
     echo "  Including config.txt"
-    cp "packages/raspios-firmware/config.txt" "$PKG_DIR/"
+    cp "packages/community/raspios-firmware/config.txt" "$PKG_DIR/"
     CONFIG_FILES="${CONFIG_FILES} config.txt"
   fi
   
-  if [ -f "packages/raspios-firmware/cmdline.txt" ]; then
+  if [ -f "packages/community/raspios-firmware/cmdline.txt" ]; then
     echo "  Including cmdline.txt"
-    cp "packages/raspios-firmware/cmdline.txt" "$PKG_DIR/"
+    cp "packages/community/raspios-firmware/cmdline.txt" "$PKG_DIR/"
     CONFIG_FILES="${CONFIG_FILES} cmdline.txt"
   fi
   
