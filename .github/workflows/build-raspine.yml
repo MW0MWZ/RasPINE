@@ -57,129 +57,6 @@ jobs:
         sudo update-binfmts --enable qemu-arm
         sudo update-binfmts --enable qemu-aarch64
 
-    - name: Cache Raspberry Pi OS image
-      id: cache-raspios
-      uses: actions/cache@v4
-      with:
-        path: cache/raspios
-        key: raspios-${{ runner.os }}-month-${{ env.BUILD_DATE }}
-        restore-keys: |
-          raspios-${{ runner.os }}-month-
-
-    - name: Download latest Raspberry Pi OS Lite
-      if: steps.cache-raspios.outputs.cache-hit != 'true'
-      run: |
-        mkdir -p cache/raspios
-        cd cache/raspios
-        
-        # Get the latest Raspberry Pi OS Lite image directory
-        echo "Finding latest Raspberry Pi OS image..."
-        RASPIOS_DIR=$(curl -s https://downloads.raspberrypi.org/raspios_lite_armhf/images/ | \
-          grep -oE 'raspios_lite_armhf-[0-9]{4}-[0-9]{2}-[0-9]{2}/' | \
-          sort -V | \
-          tail -1)
-        
-        if [ -z "$RASPIOS_DIR" ]; then
-          echo "Failed to find Raspberry Pi OS directory"
-          exit 1
-        fi
-        
-        LATEST_DIR="https://downloads.raspberrypi.org/raspios_lite_armhf/images/${RASPIOS_DIR}"
-        
-        # Find the actual image file in that directory
-        IMAGE_FILE=$(curl -s "${LATEST_DIR}" | \
-          grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}-raspios-[^"]+\.img\.xz' | \
-          head -1)
-        
-        if [ -z "$IMAGE_FILE" ]; then
-          echo "Failed to find Raspberry Pi OS image in ${LATEST_DIR}"
-          exit 1
-        fi
-        
-        echo "Downloading Raspberry Pi OS (${IMAGE_FILE})..."
-        wget -q "${LATEST_DIR}${IMAGE_FILE}"
-        
-        echo "Extracting image..."
-        xz -d -q "${IMAGE_FILE}"
-        
-        # Rename to standard name
-        mv *.img raspios-lite.img
-        echo "Raspberry Pi OS image ready"
-
-    - name: Extract Raspberry Pi OS components
-      run: |
-        mkdir -p work/{boot-partition,boot-root,modules,firmware,config}
-        
-        echo "Setting up loop device..."
-        # Set up loop device for the image
-        sudo losetup -P /dev/loop0 cache/raspios/raspios-lite.img
-        
-        # Mount partitions
-        sudo mkdir -p /mnt/{raspios-boot,raspios-root}
-        echo "Mounting partitions..."
-        sudo mount /dev/loop0p1 /mnt/raspios-boot
-        sudo mount /dev/loop0p2 /mnt/raspios-root
-        
-        # Copy boot PARTITION files (this is what goes on the FAT32 partition)
-        echo "Extracting boot partition files..."
-        sudo cp -a /mnt/raspios-boot/* work/boot-partition/
-        
-        # Copy /boot files from ROOT partition (these stay on the root filesystem)
-        # But skip /boot/firmware since that's a mount point
-        if [ -d /mnt/raspios-root/boot ]; then
-          echo "Extracting /boot files from root partition..."
-          for item in /mnt/raspios-root/boot/*; do
-            if [ "$(basename "$item")" != "firmware" ]; then
-              sudo cp -a "$item" work/boot-root/ 2>/dev/null || true
-            fi
-          done
-        fi
-        
-        # Copy kernel modules (the actual module files)
-        echo "Extracting kernel modules..."
-        sudo cp -a /mnt/raspios-root/lib/modules/* work/modules/
-        
-        # Copy firmware - including regulatory database
-        echo "Extracting firmware..."
-        sudo cp -a /mnt/raspios-root/lib/firmware/* work/firmware/
-        
-        # Specifically verify regulatory files exist
-        echo "Checking for regulatory database files..."
-        for reg_file in regulatory.db regulatory.db.p7s; do
-          if [ -f "/mnt/raspios-root/lib/firmware/${reg_file}" ]; then
-            echo "Found: ${reg_file}"
-          else
-            echo "WARNING: ${reg_file} not found in RaspberryPi OS"
-          fi
-        done
-        
-        # Also check /usr/lib/firmware in case regulatory.db is there
-        if [ -d /mnt/raspios-root/usr/lib/firmware ]; then
-          echo "Also copying /usr/lib/firmware..."
-          sudo cp -a /mnt/raspios-root/usr/lib/firmware/* work/firmware/ 2>/dev/null || true
-        fi
-        
-        # Copy important config files (note: /etc/modules is a file, not a directory)
-        echo "Extracting configuration..."
-        sudo cp /mnt/raspios-root/etc/modules work/config/modules
-        sudo cp -r /mnt/raspios-root/etc/modprobe.d work/config/
-        
-        # Copy Pi-specific udev rules
-        mkdir -p work/udev-rules
-        for rule in 99-com.rules 10-local-rpi.rules 95-backlight.rules 60-wireless-regdb.rules 85-regulatory.rules; do
-          [ -f "/mnt/raspios-root/etc/udev/rules.d/$rule" ] && \
-            sudo cp "/mnt/raspios-root/etc/udev/rules.d/$rule" work/udev-rules/
-          [ -f "/mnt/raspios-root/lib/udev/rules.d/$rule" ] && \
-            sudo cp "/mnt/raspios-root/lib/udev/rules.d/$rule" work/udev-rules/
-        done
-        
-        # Cleanup
-        echo "Cleaning up..."
-        sudo umount /mnt/raspios-boot
-        sudo umount /mnt/raspios-root
-        sudo losetup -d /dev/loop0
-        echo "Extraction complete"
-
     - name: Create empty image
       run: |
         echo "Creating ${IMAGE_SIZE} image..."
@@ -276,7 +153,7 @@ jobs:
         
         echo "✓ Alpine rootfs installation complete"
 
-    - name: Configure Alpine base system with user support
+    - name: Configure Alpine base system with user support and RasPINE repo
       run: |
         # Copy DNS configuration into chroot
         echo "Setting up DNS for chroot..."
@@ -309,11 +186,16 @@ jobs:
           echo "nameserver 8.8.4.4" >> /etc/resolv.conf
         }
         
-        # Set up Alpine repositories using the version variable
-        echo "Setting up Alpine ${ALPINE_VERSION} repositories..."
+        # Download and install RasPINE repository public key
+        echo "Adding RasPINE repository key..."
+        wget -O /etc/apk/keys/raspine.rsa.pub https://raspine.pistar.uk/raspine.rsa.pub
+        
+        # Set up Alpine repositories including RasPINE repo
+        echo "Setting up Alpine ${ALPINE_VERSION} repositories with RasPINE..."
         cat > /etc/apk/repositories << REPOS
         https://dl-cdn.alpinelinux.org/alpine/v${ALPINE_VERSION}/main
         https://dl-cdn.alpinelinux.org/alpine/v${ALPINE_VERSION}/community
+        https://raspine.pistar.uk/v${ALPINE_VERSION}/community
         REPOS
         
         # Update package index
@@ -339,6 +221,14 @@ jobs:
           tzdata \
           dhcpcd
         
+        # Install Raspberry Pi kernels from RasPINE repo
+        echo "Installing Raspberry Pi kernels from RasPINE repo..."
+        apk add --no-cache \
+          raspios-kernel-v6 \
+          raspios-kernel-v7 \
+          raspios-kernel-v7l \
+          raspios-kernel-v8
+        
         # Update CA certificates to fix SSL/TLS issues
         echo "Updating CA certificates..."
         update-ca-certificates
@@ -347,6 +237,7 @@ jobs:
         echo "Configuring services..."
         rc-update add devfs sysinit
         rc-update add dmesg sysinit
+        rc-update add hwclock boot
         rc-update add modules boot
         rc-update add sysctl boot
         rc-update add hostname boot
@@ -390,14 +281,44 @@ jobs:
         
         # Create necessary directories
         mkdir -p /boot/firmware
-        mkdir -p /lib/modules
-        mkdir -p /lib/firmware
         mkdir -p /var/log
         mkdir -p /usr/local/bin
         
         # Create home directory structure for raspine
         mkdir -p /home/raspine
         chown raspine:raspine /home/raspine
+        
+        # Add Broadcom WiFi modules to load at boot
+        echo "Adding WiFi modules to auto-load..."
+        cat >> /etc/modules << MODULES
+        # Broadcom WiFi support for Raspberry Pi
+        brcmfmac
+        brcmutil
+        cfg80211
+        rfkill
+        MODULES
+        
+        # Create modprobe configuration for brcmfmac
+        mkdir -p /etc/modprobe.d
+        cat > /etc/modprobe.d/raspi-wifi.conf << MODCONF
+        # Raspberry Pi WiFi configuration
+        options brcmfmac roamoff=1
+        # Disable power management for better stability
+        options brcmfmac feature_disable=0x82000
+        MODCONF
+        
+        # Set regulatory domain
+        cat > /etc/modprobe.d/cfg80211.conf << REGCONF
+        # Set regulatory domain
+        options cfg80211 ieee80211_regdom=GB
+        REGCONF
+        
+        # Fix rfkill configuration
+        cat > /etc/modprobe.d/rfkill_default.conf << RFKILLCONF
+        # RasPINE rfkill configuration
+        # default_state=1 means radios are UNBLOCKED by default
+        options rfkill default_state=1 master_switch_mode=2
+        RFKILLCONF
         
         echo "Alpine ${ALPINE_VERSION} configuration complete!"
         EOF
@@ -416,7 +337,7 @@ jobs:
         sudo umount /mnt/root/sys
         sudo umount /mnt/root/proc
         
-        echo "✓ Alpine base system configured with user support"
+        echo "✓ Alpine base system configured with RasPINE kernel packages"
 
     - name: Configure networking
       run: |
@@ -516,100 +437,8 @@ jobs:
         
         echo "✓ Networking configured with dhcpcd and time sync"
 
-    - name: Integrate Raspberry Pi OS components
+    - name: Configure boot partition
       run: |
-        # Copy kernel modules
-        echo "Installing kernel modules..."
-        sudo cp -a work/modules/* /mnt/root/lib/modules/
-        
-        # Clean up any non-module files that might have been copied
-        echo "Cleaning module directories..."
-        find /mnt/root/lib/modules -type f -name "*.bin" -o -name "*.dat" -o -name "*.txt" | \
-          while read file; do
-            echo "Removing non-module file: $file"
-            sudo rm -f "$file"
-          done
-        
-        # Copy firmware from RaspberryPi OS
-        echo "Installing firmware from RaspberryPi OS..."
-        if [ -d work/firmware ] && [ "$(ls -A work/firmware)" ]; then
-            sudo cp -a work/firmware/* /mnt/root/lib/firmware/
-        else
-            echo "ERROR: No firmware files found!"
-            exit 1
-        fi
-        
-        # If regulatory.db is still missing, try to get it from the host system
-        if [ ! -f /mnt/root/lib/firmware/regulatory.db ]; then
-          echo "WARNING: regulatory.db missing, trying to copy from host..."
-          if [ -f /lib/firmware/regulatory.db ]; then
-            sudo cp /lib/firmware/regulatory.* /mnt/root/lib/firmware/ 2>/dev/null || true
-          fi
-        fi
-        
-        # Verify regulatory files
-        echo "Regulatory database files:"
-        ls -la /mnt/root/lib/firmware/regulatory.* 2>/dev/null || echo "No regulatory files found!"
-        
-        echo "Firmware files count: $(find /mnt/root/lib/firmware -type f | wc -l)"
-        
-        # Copy module configuration files
-        echo "Installing module configuration..."
-        sudo cp work/config/modules /mnt/root/etc/modules
-        sudo cp -r work/config/modprobe.d /mnt/root/etc/
-        
-        # Fix rfkill configuration that blocks WiFi
-        echo "Fixing rfkill configuration..."
-        if [ -f /mnt/root/etc/modprobe.d/rfkill_default.conf ]; then
-          echo "Found rfkill_default.conf, updating..."
-          sudo tee /mnt/root/etc/modprobe.d/rfkill_default.conf << 'EOF'
-        # RasPINE rfkill configuration
-        # default_state=1 means radios are UNBLOCKED by default
-        # To block all radios by default, set to 0
-        options rfkill default_state=1 master_switch_mode=2
-        EOF
-        fi
-        
-        # Add Broadcom WiFi modules to load at boot
-        echo "Adding Broadcom WiFi modules to auto-load..."
-        cat << 'EOF' | sudo tee -a /mnt/root/etc/modules
-        # Broadcom WiFi support for Raspberry Pi
-        brcmfmac
-        brcmutil
-        cfg80211
-        rfkill
-        EOF
-        
-        # Create modprobe configuration for brcmfmac
-        sudo tee /mnt/root/etc/modprobe.d/raspi-wifi.conf << 'EOF'
-        # Raspberry Pi WiFi configuration
-        options brcmfmac roamoff=1
-        # Disable power management for better stability
-        options brcmfmac feature_disable=0x82000
-        EOF
-        
-        # Also set regulatory domain
-        sudo tee /mnt/root/etc/modprobe.d/cfg80211.conf << 'EOF'
-        # Set regulatory domain
-        options cfg80211 ieee80211_regdom=GB
-        EOF
-        
-        # Copy udev rules
-        echo "Installing udev rules..."
-        sudo cp work/udev-rules/* /mnt/root/etc/udev/rules.d/ 2>/dev/null || true
-        
-        # Copy /boot files to ROOT partition (not the boot partition!)
-        echo "Installing /boot files to root filesystem..."
-        sudo mkdir -p /mnt/root/boot
-        if [ -d work/boot-root ] && [ "$(ls -A work/boot-root)" ]; then
-          sudo cp -a work/boot-root/* /mnt/root/boot/
-        fi
-        
-        # Create symlinks in /boot pointing to /boot/firmware
-        echo "Creating symlinks for cmdline.txt and config.txt..."
-        sudo ln -sf /boot/firmware/cmdline.txt /mnt/root/boot/cmdline.txt
-        sudo ln -sf /boot/firmware/config.txt /mnt/root/boot/config.txt
-        
         # Create fstab
         sudo tee /mnt/root/etc/fstab << 'EOF'
         /dev/mmcblk0p1  /boot/firmware  vfat    defaults,noatime  0  2
@@ -617,186 +446,22 @@ jobs:
         tmpfs           /var/log        tmpfs   size=64M,nodev,nosuid  0  0
         EOF
         
-        # Copy boot partition files to the FAT32 BOOT PARTITION
-        echo "Copying boot partition files..."
-        
-        # First, copy everything except symlinks
-        cd work/boot-partition
-        sudo find . -not -type l -print0 | sudo cpio -0pdm /mnt/boot/
-        
-        # Handle symlinks by copying their targets instead
-        for link in $(find . -type l 2>/dev/null); do
-          if [ -e "$link" ]; then
-            # Dereference and copy
-            sudo cp -L "$link" "/mnt/boot/$link" 2>/dev/null || true
-          fi
-        done
-        cd - > /dev/null
-        
-        # Optimize config.txt for RasPINE using sed
-        echo "Optimizing config.txt for RasPINE..."
-        
-        # Modify existing parameters
-        sudo sed -i 's/^camera_auto_detect=.*/camera_auto_detect=0/' /mnt/boot/config.txt
-        
-        # Remove audio line (comment it out or delete)
-        sudo sed -i '/^dtparam=audio=/d' /mnt/boot/config.txt
-        
-        # Remove arm_boost line if it exists
-        sudo sed -i '/^arm_boost=/d' /mnt/boot/config.txt
-        
-        # Add GPU memory optimization if not present
-        if ! grep -q "^gpu_mem=" /mnt/boot/config.txt; then
-            # Add before [cm4] section if it exists, otherwise at end of main section
-            if grep -q "^\[cm4\]" /mnt/boot/config.txt; then
-                sudo sed -i '/^\[cm4\]/i # Free up some RAM\ngpu_mem=16\n' /mnt/boot/config.txt
-            else
-                # Add at the end before [all] section
-                sudo sed -i '/^\[all\]/i # Free up some RAM\ngpu_mem=16\n' /mnt/boot/config.txt
-            fi
-        fi
-        
-        # Add model-specific sections before [all] section
-        # First, check if we need to add our custom sections
-        if ! grep -q "^\[pi0\]" /mnt/boot/config.txt; then
-            echo "Adding model-specific optimizations..."
-            
-            # Create a temporary file with our additions
-            cat << 'CONFIGEND' > /tmp/raspine-config-additions.txt
-        
-        # Model Specifics
-        [pi0]
-        kernel=kernel.img
-        arm_freq=1000
-        core_freq=350
-        sdram_freq=450
-        
-        [pi1]
-        kernel=kernel.img
-        gpu_freq=100
-        
-        [pi2]
-        kernel=kernel.img
-        gpu_freq=100
-        
-        [pi3]
-        kernel=kernel8.img
-        arm_freq=1000
-        gpu_freq=100
-        
-        [pi3+]
-        kernel=kernel8.img
-        arm_freq=1200
-        gpu_freq=100
-        
-        [pi02]
-        kernel=kernel8.img
-        arm_freq=800
-        gpu_freq=100
-        
-        [pi4]
-        kernel=kernel8.img
-        
-        [pi5]
-        kernel=kernel8.img
-        
-        CONFIGEND
-            
-            # Insert our additions before the [all] section
-            if grep -q "^\[all\]" /mnt/boot/config.txt; then
-                # Find line number of [all] section
-                LINE_NUM=$(grep -n "^\[all\]" /mnt/boot/config.txt | cut -d: -f1)
-                # Insert our content before it
-                sudo sed -i "${LINE_NUM}r /tmp/raspine-config-additions.txt" /mnt/boot/config.txt
-            else
-                # No [all] section, append at end
-                sudo cat /tmp/raspine-config-additions.txt >> /mnt/boot/config.txt
-            fi
-            
-            rm /tmp/raspine-config-additions.txt
-        fi
-        
-        # Update [cm4] section if it exists - add kernel specification
-        if grep -q "^\[cm4\]" /mnt/boot/config.txt; then
-            # Add kernel=kernel8.img after [cm4] if not present
-            if ! sed -n '/^\[cm4\]/,/^\[/p' /mnt/boot/config.txt | grep -q "^kernel="; then
-                sudo sed -i '/^\[cm4\]/a kernel=kernel8.img' /mnt/boot/config.txt
-            fi
-        fi
-        
-        # Update [cm5] section if it exists - add kernel specification
-        if grep -q "^\[cm5\]" /mnt/boot/config.txt; then
-            # Add kernel=kernel8.img after [cm5] if not present
-            if ! sed -n '/^\[cm5\]/,/^\[/p' /mnt/boot/config.txt | grep -q "^kernel="; then
-                sudo sed -i '/^\[cm5\]/a kernel=kernel8.img' /mnt/boot/config.txt
-            fi
-        fi
-        
-        # Add our [all] section parameters
-        if grep -q "^\[all\]" /mnt/boot/config.txt; then
-            echo "Updating [all] section..."
-            # Add our parameters after [all] if they don't exist
-            if ! grep -q "^dtparam=i2c_arm=on" /mnt/boot/config.txt; then
-                sudo sed -i '/^\[all\]/a dtparam=i2c_arm=on' /mnt/boot/config.txt
-            fi
-            if ! grep -q "^dtparam=spi=on" /mnt/boot/config.txt; then
-                sudo sed -i '/^\[all\]/a dtparam=spi=on' /mnt/boot/config.txt
-            fi
-            if ! grep -q "^dtoverlay=miniuart-bt" /mnt/boot/config.txt; then
-                sudo sed -i '/^\[all\]/a dtoverlay=miniuart-bt' /mnt/boot/config.txt
-            fi
-            if ! grep -q "^dtparam=uart0=on" /mnt/boot/config.txt; then
-                sudo sed -i '/^\[all\]/a dtparam=uart0=on' /mnt/boot/config.txt
-            fi
-            if ! grep -q "^dtparam=uart1=on" /mnt/boot/config.txt; then
-                sudo sed -i '/^\[all\]/a dtparam=uart1=on' /mnt/boot/config.txt
-            fi
-            if ! grep -q "^temp_limit=" /mnt/boot/config.txt; then
-                sudo sed -i '/^\[all\]/a temp_limit=75' /mnt/boot/config.txt
-            fi
+        # Copy boot files from /boot/firmware to the actual boot partition
+        echo "Copying boot files to boot partition..."
+        if [ -d /mnt/root/boot/firmware ] && [ "$(ls -A /mnt/root/boot/firmware)" ]; then
+            echo "Found boot files in /boot/firmware, copying to boot partition..."
+            sudo cp -a /mnt/root/boot/firmware/* /mnt/boot/
         else
-            # No [all] section exists, create it
-            echo "Creating [all] section..."
-            cat << 'ALLEND' | sudo tee -a /mnt/boot/config.txt
-        
-        [all]
-        dtparam=i2c_arm=on
-        dtparam=spi=on
-        dtoverlay=miniuart-bt
-        dtparam=uart0=on
-        dtparam=uart1=on
-        temp_limit=75
-        ALLEND
+            echo "Warning: No boot files found in /boot/firmware"
         fi
         
-        # Fix cmdline.txt for Alpine Linux boot
-        if [ -f /mnt/boot/cmdline.txt ]; then
-          echo "Fixing cmdline.txt for RasPINE..."
-          
-          # Create new cmdline.txt with proper settings
-          echo "console=tty1 root=/dev/mmcblk0p2 rootfstype=ext4 fsck.repair=yes rootwait" | sudo tee /mnt/boot/cmdline.txt
-          
-          echo "New cmdline.txt contents:"
-          cat /mnt/boot/cmdline.txt
-        else
-          echo "WARNING: cmdline.txt not found! Creating one..."
-          echo "console=tty1 root=/dev/mmcblk0p2 rootfstype=ext4 fsck.repair=yes rootwait" | sudo tee /mnt/boot/cmdline.txt
+        # Create cmdline.txt if it doesn't exist
+        if [ ! -f /mnt/boot/cmdline.txt ]; then
+            echo "Creating cmdline.txt..."
+            echo "console=tty1 root=/dev/mmcblk0p2 rootfstype=ext4 fsck.repair=yes rootwait" | sudo tee /mnt/boot/cmdline.txt
         fi
         
-        # Verify config.txt modifications
-        echo "Verifying config.txt modifications..."
-        echo "Camera auto-detect status:"
-        grep "camera_auto_detect" /mnt/boot/config.txt || echo "Not found"
-        echo "GPU memory setting:"
-        grep "gpu_mem" /mnt/boot/config.txt || echo "Not found"
-        echo "[all] section parameters:"
-        sed -n '/^\[all\]/,/^\[/p' /mnt/boot/config.txt | head -10
-        
-        # Verify the symlinks were created correctly
-        echo "Verifying boot symlinks:"
-        ls -la /mnt/root/boot/cmdline.txt /mnt/root/boot/config.txt
-        
-        echo "✓ Raspberry Pi OS components integrated with optimized config"
+        echo "✓ Boot partition configured"
 
     - name: Create boot configuration system
       run: |
@@ -972,7 +637,7 @@ jobs:
         
         depend() {
             need localmount
-            after modules
+            after hwclock modules
             before networking wpa_supplicant
             provide raspine-config
         }
@@ -1049,7 +714,7 @@ jobs:
         Build Date: ${BUILD_DATE}
         Alpine Version: ${ALPINE_VERSION}
         Architecture: ${ALPINE_ARCH}
-        Kernel: Raspberry Pi OS
+        Kernel: Raspberry Pi OS (via APK)
         Userland: Alpine Linux
         EOF
 
@@ -1123,7 +788,7 @@ jobs:
           ## Features
           - Compatible with all Raspberry Pi models
           - Alpine Linux armv6/armhf userland
-          - Latest Raspberry Pi OS kernel and firmware
+          - Latest Raspberry Pi OS kernel and firmware (via APK packages)
           - Minimal 2GB image size
           - DHCP networking enabled
           - SSH access enabled (Dropbear)
