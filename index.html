@@ -13,20 +13,25 @@
         }
 
         :root {
-            --alpine-blue: #0D597F;
-            --alpine-light-blue: #1e87b8;
+            --alpine-blue: #2c5f7c;
+            --alpine-light-blue: #4a8fb9;
             --alpine-dark: #1a1a1a;
             --alpine-gray: #4a5568;
             --text-light: #e2e8f0;
             --bg-dark: #0f1419;
             --bg-card: #1a202c;
             --border-color: #2d3748;
-            --success: #48bb78;
+            --success: #5a8a3c;
             --warning: #ed8936;
             --info: #4299e1;
             --code-bg: #2d3748;
             --raspberry: #c51a4a;
+            --raspberry-dark: #8b1538;
             --raspberry-light: #e91e63;
+            --leaf-green: #5a8a3c;
+            --leaf-green-dark: #3d5c28;
+            --mountain-blue: #4a8fb9;
+            --mountain-dark: #2c5f7c;
         }
 
         body {
@@ -46,7 +51,7 @@
         header {
             text-align: center;
             padding: 80px 20px;
-            background: linear-gradient(135deg, var(--alpine-blue) 0%, var(--raspberry) 100%);
+            background: linear-gradient(135deg, var(--mountain-dark) 0%, var(--raspberry-dark) 50%, var(--leaf-green-dark) 100%);
             border-radius: 20px;
             margin-bottom: 40px;
             box-shadow: 0 20px 40px rgba(0,0,0,0.3);
@@ -84,32 +89,20 @@
         }
 
         .logo-container {
-            display: flex;
-            align-items: center;
-            gap: 20px;
-            filter: drop-shadow(0 10px 20px rgba(0,0,0,0.3));
-        }
-
-        .alpine-logo, .raspberry-logo {
-            width: 100px;
-            height: 100px;
-            display: inline-block;
-            position: relative;
+            filter: drop-shadow(0 15px 30px rgba(0,0,0,0.4));
             animation: float-logo 3s ease-in-out infinite;
         }
 
-        .raspberry-logo {
-            animation-delay: 0.5s;
+        .raspine-logo {
+            width: 150px;
+            height: 193px;
+            display: block;
+            object-fit: contain;
         }
 
         @keyframes float-logo {
             0%, 100% { transform: translateY(0); }
             50% { transform: translateY(-10px); }
-        }
-
-        .alpine-logo svg, .raspberry-logo svg {
-            width: 100%;
-            height: 100%;
         }
 
         .header-text {
@@ -161,11 +154,11 @@
         }
 
         .download-section {
-            background: linear-gradient(135deg, rgba(13, 89, 127, 0.2) 0%, rgba(197, 26, 74, 0.2) 100%);
+            background: linear-gradient(135deg, rgba(44, 95, 124, 0.2) 0%, rgba(139, 21, 56, 0.2) 50%, rgba(90, 138, 60, 0.2) 100%);
             border-radius: 15px;
             padding: 40px;
             margin: 40px 0;
-            border: 1px solid var(--alpine-light-blue);
+            border: 1px solid var(--mountain-blue);
             text-align: center;
         }
 
@@ -178,7 +171,7 @@
         }
 
         .download-btn {
-            background: var(--success);
+            background: var(--leaf-green);
             color: white;
             padding: 15px 30px;
             border-radius: 10px;
@@ -189,21 +182,23 @@
             align-items: center;
             gap: 10px;
             transition: all 0.3s ease;
-            box-shadow: 0 5px 15px rgba(72, 187, 120, 0.3);
+            box-shadow: 0 5px 15px rgba(90, 138, 60, 0.3);
         }
 
         .download-btn:hover {
             transform: translateY(-3px);
-            box-shadow: 0 8px 25px rgba(72, 187, 120, 0.4);
+            box-shadow: 0 8px 25px rgba(90, 138, 60, 0.4);
+            background: var(--success);
         }
 
         .download-btn.secondary {
-            background: var(--alpine-blue);
-            box-shadow: 0 5px 15px rgba(13, 89, 127, 0.3);
+            background: var(--mountain-dark);
+            box-shadow: 0 5px 15px rgba(44, 95, 124, 0.3);
         }
 
         .download-btn.secondary:hover {
-            box-shadow: 0 8px 25px rgba(13, 89, 127, 0.4);
+            box-shadow: 0 8px 25px rgba(44, 95, 124, 0.4);
+            background: var(--mountain-blue);
         }
 
         .download-info {
@@ -224,7 +219,7 @@
         .download-stat-value {
             font-size: 1.5em;
             font-weight: bold;
-            color: var(--alpine-light-blue);
+            color: var(--mountain-blue);
         }
 
         .download-stat-label {
@@ -235,7 +230,7 @@
 
         .section-title {
             font-size: 2em;
-            color: var(--alpine-light-blue);
+            color: var(--mountain-blue);
             margin: 40px 0 20px 0;
             padding-bottom: 10px;
             border-bottom: 2px solid var(--border-color);
@@ -273,7 +268,7 @@
             left: 0;
             right: 0;
             height: 4px;
-            background: linear-gradient(90deg, var(--alpine-blue), var(--raspberry));
+            background: linear-gradient(90deg, var(--mountain-blue), var(--raspberry), var(--leaf-green));
             transform: scaleX(0);
             transition: transform 0.3s ease;
         }
@@ -281,7 +276,7 @@
         .card:hover {
             transform: translateY(-5px);
             box-shadow: 0 15px 40px rgba(0,0,0,0.4);
-            border-color: var(--alpine-light-blue);
+            border-color: var(--mountain-blue);
         }
 
         .card:hover::before {
@@ -314,7 +309,7 @@
         .feature-title {
             font-size: 1.2em;
             font-weight: 600;
-            color: var(--alpine-light-blue);
+            color: var(--mountain-blue);
             margin-bottom: 8px;
         }
 
@@ -326,7 +321,7 @@
         }
 
         .card h2 {
-            color: var(--alpine-light-blue);
+            color: var(--mountain-blue);
             margin-bottom: 20px;
             font-size: 1.8em;
             display: flex;
@@ -354,14 +349,14 @@
         }
 
         .code-block:hover {
-            border-color: var(--alpine-light-blue);
+            border-color: var(--mountain-blue);
         }
 
         .copy-button {
             position: absolute;
             top: 10px;
             right: 10px;
-            background: var(--alpine-blue);
+            background: var(--mountain-dark);
             color: white;
             border: none;
             padding: 6px 12px;
@@ -374,7 +369,7 @@
 
         .copy-button:hover {
             opacity: 1;
-            background: var(--alpine-light-blue);
+            background: var(--mountain-blue);
             transform: scale(1.05);
         }
 
@@ -402,7 +397,7 @@
 
         .pi-model-name {
             font-weight: 600;
-            color: var(--raspberry-light);
+            color: var(--raspberry);
             margin-bottom: 5px;
         }
 
@@ -412,15 +407,15 @@
         }
 
         .quick-start {
-            background: linear-gradient(135deg, rgba(13, 89, 127, 0.2) 0%, rgba(30, 135, 184, 0.2) 100%);
+            background: linear-gradient(135deg, rgba(44, 95, 124, 0.2) 0%, rgba(74, 143, 185, 0.2) 100%);
             border-radius: 15px;
             padding: 30px;
             margin: 40px 0;
-            border: 1px solid var(--alpine-light-blue);
+            border: 1px solid var(--mountain-blue);
         }
 
         .quick-start h2 {
-            color: var(--alpine-light-blue);
+            color: var(--mountain-blue);
             margin-bottom: 20px;
             font-size: 2em;
         }
@@ -433,7 +428,7 @@
         }
 
         .step-number {
-            background: var(--alpine-blue);
+            background: var(--mountain-dark);
             color: white;
             width: 30px;
             height: 30px;
@@ -459,15 +454,15 @@
         .stat-item {
             text-align: center;
             padding: 15px;
-            background: rgba(30, 135, 184, 0.1);
+            background: rgba(74, 143, 185, 0.1);
             border-radius: 10px;
-            border: 1px solid rgba(30, 135, 184, 0.3);
+            border: 1px solid rgba(74, 143, 185, 0.3);
         }
 
         .stat-number {
             font-size: 2em;
             font-weight: bold;
-            color: var(--alpine-light-blue);
+            color: var(--mountain-blue);
         }
 
         .stat-label {
@@ -477,7 +472,7 @@
         }
 
         .badge {
-            background: var(--alpine-blue);
+            background: var(--mountain-dark);
             color: white;
             padding: 5px 15px;
             border-radius: 20px;
@@ -495,7 +490,7 @@
         }
 
         .badge.alpine {
-            background: var(--alpine-blue);
+            background: var(--mountain-blue);
         }
 
         .tech-specs {
@@ -522,7 +517,7 @@
 
         .specs-table td:first-child {
             font-weight: 600;
-            color: var(--alpine-light-blue);
+            color: var(--mountain-blue);
             width: 30%;
         }
 
@@ -535,7 +530,7 @@
         }
 
         footer a {
-            color: var(--alpine-light-blue);
+            color: var(--mountain-blue);
             text-decoration: none;
             transition: all 0.3s ease;
         }
@@ -569,7 +564,8 @@
 
             .raspine-logo {
                 width: 120px;
-                height: 120px;
+                height: 154px;
+                object-fit: contain;
             }
 
             .logo-container {
@@ -583,28 +579,7 @@
         <header>
             <div class="header-content">
                 <div class="logo-container">
-                    <div class="alpine-logo">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
-                            <defs>
-                                <linearGradient id="peakGradient" x1="0%" y1="100%" x2="0%" y2="0%">
-                                    <stop offset="0%" style="stop-color:#ffffff;stop-opacity:0.9" />
-                                    <stop offset="100%" style="stop-color:#ffffff;stop-opacity:1" />
-                                </linearGradient>
-                                <filter id="shadow">
-                                    <feDropShadow dx="0" dy="4" stdDeviation="3" flood-opacity="0.2"/>
-                                </filter>
-                            </defs>
-                            <path fill="url(#peakGradient)" filter="url(#shadow)" d="M100 30L150 120H130L100 70L70 120H50L100 30Z"/>
-                            <path fill="rgba(255,255,255,0.7)" d="M100 80L120 120H80L100 80Z"/>
-                            <path fill="rgba(255,255,255,0.3)" d="M100 30L110 50L100 55L90 50Z"/>
-                            <path fill="rgba(255,255,255,0.2)" d="M75 100L85 120H65Z M125 100L135 120H115Z"/>
-                        </svg>
-                    </div>
-                    <div class="raspberry-logo">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
-                            <path fill="white" d="M50,10 C60,10 70,20 70,30 C70,35 68,40 65,43 L65,60 C65,70 58,78 50,78 C42,78 35,70 35,60 L35,43 C32,40 30,35 30,30 C30,20 40,10 50,10 Z M45,25 C43,25 41,27 41,29 C41,31 43,33 45,33 C47,33 49,31 49,29 C49,27 47,25 45,25 Z M55,25 C53,25 51,27 51,29 C51,31 53,33 55,33 C57,33 59,31 59,29 C59,27 57,25 55,25 Z"/>
-                        </svg>
-                    </div>
+                    <img src="/raspine-logo.png" alt="RasPINE Logo" class="raspine-logo">
                 </div>
                 <div class="header-text">
                     <h1>RasPINE</h1>
@@ -618,7 +593,7 @@
         </header>
 
         <div class="download-section">
-            <h2 style="color: var(--alpine-light-blue); font-size: 2em; margin-bottom: 10px;">📥 Download RasPINE</h2>
+            <h2 style="color: var(--mountain-blue); font-size: 2em; margin-bottom: 10px;">📥 Download RasPINE</h2>
             <p style="opacity: 0.9; margin-bottom: 30px;">Get the latest hybrid OS image for your Raspberry Pi</p>
             
             <div class="download-buttons">
@@ -657,8 +632,8 @@
             </div>
 
             <p style="margin-top: 20px; opacity: 0.8;">
-                <a href="/downloads/RasPINE-latest.img.xz.sha256" style="color: var(--alpine-light-blue);">SHA256 Checksum</a> | 
-                <a href="/downloads/RasPINE-latest.info.txt" style="color: var(--alpine-light-blue);">Build Info</a>
+                <a href="/downloads/RasPINE-latest.img.xz.sha256" style="color: var(--mountain-blue);">SHA256 Checksum</a> | 
+                <a href="/downloads/RasPINE-latest.info.txt" style="color: var(--mountain-blue);">Build Info</a>
             </p>
         </div>
 
@@ -925,7 +900,7 @@
             navigator.clipboard.writeText(text).then(() => {
                 const originalText = button.textContent;
                 button.textContent = 'Copied!';
-                button.style.background = '#48bb78';
+                button.style.background = '#5a8a3c';
                 setTimeout(() => {
                     button.textContent = originalText;
                     button.style.background = '';
