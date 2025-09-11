@@ -17,7 +17,7 @@ TEMP_KEY_DIR=$(mktemp -d)
 trap "rm -rf $TEMP_KEY_DIR" EXIT
 
 echo "$APK_PRIVATE_KEY" > "$TEMP_KEY_DIR/hamradio.rsa"
-cp keys/hamradio.rsa.pub "$TEMP_KEY_DIR/hamradio.rsa.pub"
+cp keys/raspine.rsa.pub "$TEMP_KEY_DIR/hamradio.rsa.pub"
 
 # Build each package
 for pkg_dir in ${APKBUILD_DIR}/*/; do
@@ -43,7 +43,7 @@ for pkg_dir in ${APKBUILD_DIR}/*/; do
       if [ -d "/output" ] && ls /output/*.apk >/dev/null 2>&1; then
         echo "Adding local repository for dependencies..."
         echo "/output" >> /etc/apk/repositories
-        cp /keys/hamradio.rsa.pub /etc/apk/keys/
+        cp /keys/raspine.rsa.pub /etc/apk/keys/
         apk update || true
       fi
       
@@ -69,7 +69,7 @@ for pkg_dir in ${APKBUILD_DIR}/*/; do
       # Setup abuild keys
       mkdir -p /home/builder/.abuild
       cp /keys/hamradio.rsa /home/builder/.abuild/
-      cp /keys/hamradio.rsa.pub /home/builder/.abuild/
+      cp /keys/raspine.rsa.pub /home/builder/.abuild/
       chown -R builder:builder /home/builder/.abuild
       chmod 600 /home/builder/.abuild/hamradio.rsa
       chmod 644 /home/builder/.abuild/hamradio.rsa.pub
@@ -81,7 +81,7 @@ CONF
       chown builder:builder /home/builder/.abuild/abuild.conf
       
       # Install public key for package verification
-      cp /keys/hamradio.rsa.pub /etc/apk/keys/
+      cp /keys/raspine.rsa.pub /etc/apk/keys/
       
       # Check if we have any install scripts and ensure they are executable
       cd /home/builder/package

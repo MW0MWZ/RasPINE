@@ -210,7 +210,7 @@ jobs:
           done
           
           # Ensure public key is present
-          cp keys/hamradio.rsa.pub deploy/hamradio.rsa.pub 2>/dev/null || true
+          cp keys/raspine.rsa.pub deploy/hamradio.rsa.pub 2>/dev/null || true
           
           # Update static files
           cp CNAME deploy/ 2>/dev/null || true
@@ -275,7 +275,7 @@ jobs:
               trap "rm -rf $TEMP_DIR" EXIT
               
               echo "$APK_PRIVATE_KEY" > "$TEMP_DIR/hamradio.rsa"
-              cp keys/hamradio.rsa.pub "$TEMP_DIR/"
+              cp keys/raspine.rsa.pub "$TEMP_DIR/"
               
               # Generate index in Docker for ALL packages in the directory
               docker run --rm \
@@ -291,7 +291,7 @@ jobs:
                   apk add --no-cache alpine-sdk
                   mkdir -p /root/.abuild
                   echo "PACKAGER_PRIVKEY=\"/keys/hamradio.rsa\"" > /root/.abuild/abuild.conf
-                  cp /keys/hamradio.rsa.pub /etc/apk/keys/
+                  cp /keys/raspine.rsa.pub /etc/apk/keys/
                   cd /repo
                   
                   # Remove any stale index files

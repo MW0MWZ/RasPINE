@@ -63,7 +63,7 @@ TEMP_KEY_DIR=$(mktemp -d)
 trap "rm -rf $TEMP_KEY_DIR" EXIT
 
 echo "$APK_PRIVATE_KEY" > "$TEMP_KEY_DIR/hamradio.rsa"
-cp keys/hamradio.rsa.pub "$TEMP_KEY_DIR/"
+cp keys/raspine.rsa.pub "$TEMP_KEY_DIR/"
 
 # Generate index for ALL packages
 echo "Generating APKINDEX..."
@@ -77,7 +77,7 @@ docker run --rm \
     apk add --no-cache alpine-sdk
     mkdir -p /root/.abuild
     echo "PACKAGER_PRIVKEY=\"/keys/hamradio.rsa\"" > /root/.abuild/abuild.conf
-    cp /keys/hamradio.rsa.pub /etc/apk/keys/
+    cp /keys/raspine.rsa.pub /etc/apk/keys/
     cd /repo
     
     # Remove any old index
