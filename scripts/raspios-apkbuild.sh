@@ -199,12 +199,7 @@ elif [ -f "/boot/vmlinuz" ]; then
     cp -f "/boot/vmlinuz" "/boot/firmware/kernel${KERNEL_SUFFIX}.img"
 fi
 
-# Copy overlays from their stored location to firmware if not already there
-if [ -d "/usr/lib/linux-image-\${KERNEL_VERSION}/overlays" ] && [ ! -d "/boot/firmware/overlays" ]; then
-    echo "Copying overlays to /boot/firmware/overlays..."
-    mkdir -p /boot/firmware/overlays
-    cp -r "/usr/lib/linux-image-\${KERNEL_VERSION}/overlays/"* "/boot/firmware/overlays/" 2>/dev/null || true
-fi
+# Don't copy overlays - they should be in the firmware package only
 
 echo "Raspberry Pi kernel ${variant} configuration complete."
 POST_INSTALL_BODY

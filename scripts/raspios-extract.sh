@@ -31,6 +31,16 @@ for variant in $VARIANTS; do
     [ -d "$pkg_dir" ] || continue
     echo "  Processing kernel/modules from $(basename $pkg_dir)"
     
+    # Log what module directories we're copying
+    if [ -d "$pkg_dir/lib/modules" ]; then
+      echo "    Module directories found:"
+      for moddir in "$pkg_dir"/lib/modules/*; do
+        if [ -d "$moddir" ]; then
+          echo "      - $(basename "$moddir")"
+        fi
+      done
+    fi
+    
     # First, handle DTB files and overlays relocation
     if [ -d "$pkg_dir/usr/lib" ]; then
       for kernel_dir in "$pkg_dir"/usr/lib/linux-image-*-rpi-${variant}*; do
