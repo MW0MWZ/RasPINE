@@ -1,72 +1,77 @@
-# RasPINE - Raspberry Pi + Alpine Linux Hybrid
+# 🏔️ RasPINE - Raspberry Pi + Alpine Linux Hybrid
 
 [![Build RasPINE Image](https://github.com/MW0MWZ/RasPINE/actions/workflows/build-raspine.yml/badge.svg)](https://github.com/MW0MWZ/RasPINE/actions/workflows/build-raspine.yml)
 [![Latest Release](https://img.shields.io/github/v/release/MW0MWZ/RasPINE)](https://github.com/MW0MWZ/RasPINE/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/MW0MWZ/RasPINE/total)](https://github.com/MW0MWZ/RasPINE/releases)
+[![Alpine Version](https://img.shields.io/badge/Alpine-v3.22-0D597F)](https://alpinelinux.org)
+[![Kernel](https://img.shields.io/badge/Kernel-RasPiOS%20Latest-c51a4a)](https://www.raspberrypi.org)
 
-RasPINE is a hybrid operating system image that combines:
-- **Kernel, firmware, and modules** from Raspberry Pi OS (for maximum hardware compatibility)
-- **Userland** from Alpine Linux armv6/armhf (for minimal footprint and musl libc)
+> **The best of both worlds:** Raspberry Pi OS kernel and firmware for perfect hardware compatibility, combined with Alpine Linux userland for minimal footprint and efficiency.
 
-## 🚀 Quick Download
+## ✨ Key Features
 
-**Latest Release:** [Download from raspine.pistar.uk](https://raspine.pistar.uk)
+| Feature | Description |
+|---------|-------------|
+| 🔧 **Maximum Compatibility** | Uses official Raspberry Pi OS kernel and firmware for perfect hardware support |
+| 🪶 **Minimal Footprint** | Alpine Linux userland with musl libc - fits on a 2GB SD card |
+| 🔒 **Secure by Default** | SSH enabled with Dropbear, minimal attack surface |
+| 📦 **Modern Package Management** | Alpine's apk package manager with vast repository access |
+| 🌐 **Network Ready** | DHCP on ethernet, WiFi support with wpa_supplicant |
+| 💾 **SD Card Friendly** | /var/log on tmpfs to reduce wear on your SD card |
+| 🔄 **Monthly Builds** | Automated builds on the 1st of each month |
+
+## 🚀 Quick Start
+
+### 1️⃣ Download the Latest Image
+
+<div align="center">
+
+**[📥 Download from raspine.pistar.uk](https://raspine.pistar.uk)**
 
 Alternative downloads:
-- [GitHub Releases](https://github.com/MW0MWZ/RasPINE/releases/latest)
-- [Direct Download (Latest)](https://raspine.pistar.uk/downloads/RasPINE-latest.img.xz)
+[GitHub Releases](https://github.com/MW0MWZ/RasPINE/releases/latest) | 
+[Direct Download](https://raspine.pistar.uk/downloads/RasPINE-latest.img.xz) | 
+[SHA256 Checksum](https://raspine.pistar.uk/downloads/RasPINE-latest.img.xz.sha256)
 
-## Features
+</div>
 
-- ✅ Compatible with all Raspberry Pi models (Pi 1, Zero, 2, 3, 4, 400, Zero 2 W)
-- ✅ Minimal ~2GB SD card image
-- ✅ Alpine Linux 3.22 userland (armv6/armhf)
-- ✅ Latest Raspberry Pi OS kernel and firmware
-- ✅ Automatic DHCP on ethernet
-- ✅ SSH enabled by default (Dropbear)
-- ✅ WiFi support included (wpa_supplicant)
-- ✅ tmpfs for /var/log to reduce SD card wear
-- ✅ glibc compatibility layer for kernel modules
-- ✅ Monthly automated builds
+### 2️⃣ Write to SD Card
 
-## Quick Start
+```bash
+# Extract the image
+xz -d RasPINE-YYYY-MM-DD.img.xz
 
-### Download
+# Write to SD card (replace /dev/sdX with your SD card device)
+sudo dd if=RasPINE-YYYY-MM-DD.img of=/dev/sdX bs=4M status=progress conv=fsync
+```
 
-Download the latest release from [raspine.pistar.uk](https://raspine.pistar.uk) or [GitHub Releases](https://github.com/MW0MWZ/RasPINE/releases).
+### 3️⃣ First Boot
 
-### Installation
-
-1. Extract the image:
-   ```bash
-   xz -d RasPINE-YYYY-MM-DD.img.xz
-   ```
-
-2. Write to SD card (replace `/dev/sdX` with your SD card device):
-   ```bash
-   sudo dd if=RasPINE-YYYY-MM-DD.img of=/dev/sdX bs=4M status=progress conv=fsync
-   ```
-
-3. Insert the SD card into your Raspberry Pi and boot
-
-### First Login
+Insert the SD card and power on your Raspberry Pi. Connect via SSH or console:
 
 - **Username:** `root`
 - **Password:** `raspberry`
-- **SSH:** Enabled on port 22
 
-⚠️ **Security Note:** Change the root password immediately after first login!
+> ⚠️ **Security Note:** Change the root password immediately after first login using `passwd`
 
-```bash
-passwd
-```
+## 🥧 Compatibility
 
-## Network Configuration
+RasPINE works with **ALL** Raspberry Pi models:
+
+| Series | Models |
+|--------|--------|
+| **Classic** | Pi 1 Model A/B/B+ |
+| **Zero** | Pi Zero, Zero W, Zero 2 W |
+| **Standard** | Pi 2B, 3A+/B/B+, 4B, 5 |
+| **Compute** | CM1, CM3, CM3+, CM4, CM4S |
+| **Special** | Pi 400, Pi 500 |
+
+## 📡 Network Configuration
 
 ### Ethernet
 DHCP is enabled by default on `eth0`. No configuration needed.
 
-### WiFi
+### WiFi Setup
 Edit `/etc/wpa_supplicant/wpa_supplicant.conf`:
 
 ```bash
@@ -81,122 +86,151 @@ Then enable the wireless interface:
 ifup wlan0
 ```
 
-## System Management
+## 📦 Package Management
 
-### Package Management
-Use Alpine's `apk` package manager:
+RasPINE uses Alpine's `apk` package manager:
 
 ```bash
 # Update package index
 apk update
 
-# Install a package
-apk add nano
+# Install packages
+apk add nano htop git
 
 # Search for packages
 apk search nginx
+
+# Remove packages
+apk del package-name
 ```
 
-### Services
-Managed via OpenRC:
+### Custom APK Repository
+
+RasPINE includes access to the custom Ham Radio APK repository:
 
 ```bash
-# List services
+# Already configured in the image
+echo "https://apk.pistar.uk/v3.22/community" >> /etc/apk/repositories
+```
+
+## 🛠️ System Management
+
+### Service Management (OpenRC)
+
+```bash
+# List all services
 rc-status
 
 # Start/stop/restart services
 rc-service dropbear start
 rc-service networking restart
 
-# Enable/disable services at boot
+# Enable/disable at boot
 rc-update add dropbear default
 rc-update del dropbear default
 ```
 
-## Building from Source
+### System Information
 
-### Prerequisites
-- GitHub account with Actions enabled
-- Ubuntu 24.04 environment (or GitHub Actions)
+```bash
+# Check Alpine version
+cat /etc/alpine-release
 
-### Build Process
+# Check kernel version
+uname -r
 
-1. Fork this repository
-2. Enable GitHub Actions in your fork
-3. Trigger a build:
-   - Push to main branch, or
-   - Manually trigger via Actions tab
-   - Automatic monthly builds (1st of each month)
+# Check disk usage
+df -h
 
-The build process takes approximately 15-20 minutes and produces:
-- Compressed image (.img.xz)
-- SHA256 checksum
-- Build information file
+# Check memory usage
+free -h
+```
 
-## Technical Details
+## 🏗️ Technical Architecture
 
 ### Partition Layout
-- **Partition 1:** 256MB FAT32 - `/boot/firmware`
-- **Partition 2:** ~1.7GB ext4 - `/` (root)
 
-### What's Included from Raspberry Pi OS
-- All kernel images (kernel.img, kernel7.img, kernel7l.img, kernel8.img)
+| Partition | Size | Format | Mount Point | Purpose |
+|-----------|------|--------|-------------|---------|
+| 1 | 256MB | FAT32 | `/boot/firmware` | Boot files, kernel, firmware |
+| 2 | ~1.7GB | ext4 | `/` | Root filesystem |
+
+### What Comes From Where?
+
+#### From Raspberry Pi OS:
+- All kernel images (kernel*.img)
 - Device tree blobs and overlays
 - Kernel modules (`/lib/modules/*`)
 - Firmware blobs (`/lib/firmware/*`)
 - Boot configuration files
-- Pi-specific udev rules
+- Hardware-specific udev rules
 
-### What's from Alpine Linux
-- Complete userland (musl libc based)
+#### From Alpine Linux:
+- Complete userland (musl libc)
 - OpenRC init system
 - BusyBox utilities
-- Alpine package manager (apk)
+- APK package manager
 - Dropbear SSH server
 - Network management tools
 
-## Troubleshooting
+## 🐛 Troubleshooting
 
-### No Network Connection
-- Check cable connection for ethernet
-- Verify WiFi credentials in `/etc/wpa_supplicant/wpa_supplicant.conf`
-- Check network status: `ip addr show`
+### Common Issues and Solutions
 
-### SSH Connection Refused
-- Ensure dropbear is running: `rc-status`
-- Start if needed: `rc-service dropbear start`
+| Issue | Solution |
+|-------|----------|
+| **No network** | Check cable/WiFi config, verify with `ip addr show` |
+| **SSH refused** | Ensure dropbear is running: `rc-status` |
+| **Module errors** | Some glibc modules may fail; `libc6-compat` provides basic compatibility |
+| **Boot issues** | Check `/boot/firmware/config.txt` and `cmdline.txt` |
+| **Package not found** | Run `apk update` first |
 
-### Module Loading Errors
-Some kernel modules compiled against glibc may fail. The `libc6-compat` package provides basic compatibility, but some proprietary modules may not work.
+### Getting Help
 
-## Contributing
+Check the [Issues](https://github.com/MW0MWZ/RasPINE/issues) page
 
-Contributions are welcome! Please:
-1. Fork the repository
-2. Create a feature branch
-3. Commit your changes
-4. Push to the branch
-5. Open a Pull Request
+## 🤝 Contributing
 
-## License
+Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+### Development
+
+```bash
+# Clone the repository
+git clone https://github.com/MW0MWZ/RasPINE.git
+cd RasPINE
+
+# Make your changes
+# Test locally if possible
+# Submit a pull request
+```
+
+## 📄 License
 
 This project combines components from:
-- Raspberry Pi OS (Debian-based) - [License](https://www.raspberrypi.org/documentation/linux/kernel/license.md)
-- Alpine Linux - [License](https://www.alpinelinux.org/about/)
+- **Raspberry Pi OS** - [Raspberry Pi OS License](https://www.raspberrypi.org/documentation/linux/kernel/license.md)
+- **Alpine Linux** - [Alpine License](https://www.alpinelinux.org/about/)
 
-## Acknowledgments
+## 🙏 Acknowledgments
 
-- Raspberry Pi Foundation for kernel and firmware
-- Alpine Linux team for the minimal userland
-- Community contributors
+- [Raspberry Pi Foundation](https://www.raspberrypi.org) for kernel and firmware
+- [Alpine Linux Team](https://alpinelinux.org) for the minimal userland
+- [Pi-Star Team](https://www.pistar.uk) for inspiration and collaboration
+- The Amateur Radio community for continuous support
 
-## Support
+## 📊 Project Stats
 
-For issues and questions:
-- Open an [Issue](https://github.com/MW0MWZ/RasPINE/issues)
-- Check existing issues first
-- Provide detailed information about your Pi model and the problem
+![GitHub Stars](https://img.shields.io/github/stars/MW0MWZ/RasPINE?style=social)
+![GitHub Forks](https://img.shields.io/github/forks/MW0MWZ/RasPINE?style=social)
+![GitHub Watchers](https://img.shields.io/github/watchers/MW0MWZ/RasPINE?style=social)
 
 ---
 
-**Note:** This is an experimental hybrid system. While it should work on all Pi models, some features requiring specific userland support may not function as expected.
+<div align="center">
+
+**Built with ❤️ for the Raspberry Pi and Amateur Radio communities**
+
+*Maintained by Andy Taylor (MW0MWZ)*
+
+[Website](https://raspine.pistar.uk)
+</div>
