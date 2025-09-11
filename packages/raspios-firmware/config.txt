@@ -1,0 +1,85 @@
+# RasPINE /boot/firmware/config.txt
+# For more options and information see
+# http://rptl.io/configtxt
+# Some settings may impact device functionality. See link above for details
+
+# Additional overlays and parameters are documented
+# /boot/firmware/overlays/README
+
+# Automatically load overlays for detected cameras
+camera_auto_detect=0
+
+# Automatically load overlays for detected DSI displays
+display_auto_detect=1
+
+# Automatically load initramfs files, if found
+auto_initramfs=1
+
+# Enable DRM VC4 V3D driver
+dtoverlay=vc4-kms-v3d
+max_framebuffers=2
+
+# Don't have the firmware create an initial video= setting in cmdline.txt.
+# Use the kernel's default instead.
+disable_fw_kms_setup=1
+
+# Disable compensation for displays with overscan
+disable_overscan=1
+
+# Free up some RAM
+gpu_mem=16
+
+# Model Specifics
+[pi0]
+kernel=kernel.img
+arm_freq=1000
+core_freq=350
+sdram_freq=450
+
+[pi1]
+kernel=kernel.img
+gpu_freq=100
+
+[pi2]
+kernel=kernel.img
+gpu_freq=100
+
+[pi3]
+kernel=kernel8.img
+arm_freq=1000
+gpu_freq=100
+
+[pi3+]
+kernel=kernel8.img
+arm_freq=1200
+gpu_freq=100
+
+[pi02]
+kernel=kernel8.img
+arm_freq=800
+gpu_freq=100
+
+[pi4]
+kernel=kernel8.img
+
+[cm4]
+kernel=kernel8.img
+# Enable host mode on the 2711 built-in XHCI USB controller.
+# This line should be removed if the legacy DWC2 controller is required
+# (e.g. for USB device mode) or if USB support is not required.
+otg_mode=1
+
+[pi5]
+kernel=kernel8.img
+
+[cm5]
+kernel=kernel8.img
+dtoverlay=dwc2,dr_mode=host
+
+[all]
+temp_limit=75
+dtparam=uart1=on
+dtparam=uart0=on
+dtoverlay=miniuart-bt
+dtparam=spi=on
+dtparam=i2c_arm=on
