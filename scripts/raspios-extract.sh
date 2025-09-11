@@ -41,7 +41,7 @@ for variant in $VARIANTS; do
       done
     fi
     
-    # First, handle DTB files and overlays relocation
+    # First, handle DTB files relocation (but NOT overlays - those go to firmware)
     if [ -d "$pkg_dir/usr/lib" ]; then
       for kernel_dir in "$pkg_dir"/usr/lib/linux-image-*-rpi-${variant}*; do
         if [ -d "$kernel_dir" ]; then
@@ -55,11 +55,9 @@ for variant in $VARIANTS; do
             cp -r "$kernel_dir/broadcom/"* "$VARIANT_DIR/boot/firmware/" 2>/dev/null || true
           fi
           
-          # Move overlays to /boot/firmware/overlays
+          # SKIP overlays - they will be handled by firmware package
           if [ -d "$kernel_dir/overlays" ]; then
-            echo "    Relocating overlays from $KERNEL_VERSION_DIR/overlays to /boot/firmware/overlays"
-            mkdir -p "$VARIANT_DIR/boot/firmware/overlays"
-            cp -r "$kernel_dir/overlays/"* "$VARIANT_DIR/boot/firmware/overlays/" 2>/dev/null || true
+            echo "    Skipping overlays (will be included in firmware package)"
           fi
           
           # Now copy everything else EXCEPT the broadcom and overlays directories
@@ -159,6 +157,12 @@ for variant in $VARIANTS; do
     rm -f "$VARIANT_DIR/boot/boot"
   fi
   
+  # IMPORTANT: Remove any overlays that might have been copied to kernel package
+  if [ -d "$VARIANT_DIR/boot/firmware/overlays" ]; then
+    echo "  Removing overlays from kernel package (belong in firmware)"
+    rm -rf "$VARIANT_DIR/boot/firmware/overlays"
+  fi
+  
   # Create tarball if files exist
   if [ -d "$VARIANT_DIR/boot" ] || [ -d "$VARIANT_DIR/lib" ] || [ -d "$VARIANT_DIR/usr" ]; then
     echo "Creating tarball for ${variant}..."
@@ -168,6 +172,7 @@ for variant in $VARIANTS; do
     if [ -d "$VARIANT_DIR/boot/firmware" ]; then
       echo "  Contents of /boot/firmware for ${variant}:"
       echo "    DTB files: $(find "$VARIANT_DIR/boot/firmware" -maxdepth 1 -name "*.dtb" 2>/dev/null | wc -l)"
+      # Should be 0 for overlays in kernel packages
       echo "    Overlay files: $(find "$VARIANT_DIR/boot/firmware/overlays" -name "*.dtbo" 2>/dev/null | wc -l || echo 0)"
     fi
   else
@@ -245,27 +250,34 @@ if [ "$FIRMWARE_FOUND" = true ]; then
     fi
   done
   
-  # Collect overlays from all kernel packages and put them in firmware
-  echo "Collecting overlays for firmware package..."
+  # Collect ALL overlays from ALL kernel packages and put them in firmware
+  echo "Collecting overlays for firmware package from all kernel variants..."
   mkdir -p "$FIRMWARE_DIR/boot/firmware/overlays"
+  
+  # Collect from extracted packages
   for pkg_dir in ${EXTRACT_DIR}/linux-image-*; do
     if [ -d "$pkg_dir" ]; then
+      # Look for overlays in /usr/lib/linux-image-*/overlays
       for kernel_dir in "$pkg_dir"/usr/lib/linux-image-*/overlays; do
         if [ -d "$kernel_dir" ]; then
           echo "  Adding overlays from $(basename $(dirname "$kernel_dir"))"
           cp -r "$kernel_dir"/* "$FIRMWARE_DIR/boot/firmware/overlays/" 2>/dev/null || true
         fi
       done
+      
+      # Also check if overlays are directly in /boot/firmware/overlays in the package
+      if [ -d "$pkg_dir/boot/firmware/overlays" ]; then
+        echo "  Adding overlays from $(basename "$pkg_dir") /boot/firmware/overlays"
+        cp -r "$pkg_dir/boot/firmware/overlays"/* "$FIRMWARE_DIR/boot/firmware/overlays/" 2>/dev/null || true
+      fi
     fi
   done
   
-  # Also check if there's a /boot/firmware directory already and merge it
-  if [ -d "$FIRMWARE_DIR/boot/firmware" ]; then
-    echo "Firmware will be installed to /boot/firmware"
-    if [ -d "$FIRMWARE_DIR/boot/firmware/overlays" ]; then
-      overlay_count=$(find "$FIRMWARE_DIR/boot/firmware/overlays" -name "*.dtbo" 2>/dev/null | wc -l)
-      echo "  Overlay files included: $overlay_count"
-    fi
+  # Remove duplicates - overlays should be the same across all kernel versions
+  # Just ensure they're all there
+  if [ -d "$FIRMWARE_DIR/boot/firmware/overlays" ]; then
+    overlay_count=$(find "$FIRMWARE_DIR/boot/firmware/overlays" -name "*.dtbo" 2>/dev/null | wc -l)
+    echo "  Total overlay files collected in firmware package: $overlay_count"
   fi
   
   if [ -n "$(ls -A $FIRMWARE_DIR 2>/dev/null)" ]; then
