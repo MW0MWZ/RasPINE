@@ -367,7 +367,7 @@ jobs:
             echo "Purging Cloudflare cache for APKINDEX files..."
             
             # Purge all APKINDEX files
-            FILES_TO_PURGE='["https://apk.pistar.uk/v3.22/community/x86_64/APKINDEX.tar.gz","https://apk.pistar.uk/v3.22/community/armhf/APKINDEX.tar.gz","https://apk.pistar.uk/v3.22/community/aarch64/APKINDEX.tar.gz","https://apk.pistar.uk/v3.21/community/x86_64/APKINDEX.tar.gz","https://apk.pistar.uk/v3.21/community/armhf/APKINDEX.tar.gz","https://apk.pistar.uk/v3.21/community/aarch64/APKINDEX.tar.gz"]'
+            FILES_TO_PURGE='["https://raspine.pistar.uk/v3.22/community/armhf/APKINDEX.tar.gz","https://raspine.pistar.uk/v3.22/community/aarch64/APKINDEX.tar.gz","https://raspine.pistar.uk/v3.21/community/armhf/APKINDEX.tar.gz","https://raspine.pistar.uk/v3.21/community/aarch64/APKINDEX.tar.gz"]'
             
             RESPONSE=$(curl -s -X POST "https://api.cloudflare.com/client/v4/zones/$CLOUDFLARE_ZONE/purge_cache" \
               -H "Authorization: Bearer $CLOUDFLARE_TOKEN" \
