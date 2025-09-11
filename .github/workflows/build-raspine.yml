@@ -222,12 +222,17 @@ jobs:
           dhcpcd
         
         # Install Raspberry Pi kernels from RasPINE repo
+        # Using --force-overwrite to handle overlay conflicts between packages
         echo "Installing Raspberry Pi kernels from RasPINE repo..."
-        apk add --no-cache \
+        apk add --no-cache --force-overwrite \
           raspios-kernel-v6 \
           raspios-kernel-v7 \
           raspios-kernel-v7l \
           raspios-kernel-v8
+        
+        # Fix the mkinitfs trigger error by creating the directory/file it expects
+        mkdir -p /boot
+        touch /boot/initramfs 2>/dev/null || true
         
         # Update CA certificates to fix SSL/TLS issues
         echo "Updating CA certificates..."
@@ -319,6 +324,9 @@ jobs:
         # default_state=1 means radios are UNBLOCKED by default
         options rfkill default_state=1 master_switch_mode=2
         RFKILLCONF
+        
+        # Cleanup the initramfs file we created
+        rm -f /boot/initramfs 2>/dev/null || true
         
         echo "Alpine ${ALPINE_VERSION} configuration complete!"
         EOF
