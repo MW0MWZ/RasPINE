@@ -16,8 +16,8 @@ mkdir -p "$REPO_DIR"
 TEMP_KEY_DIR=$(mktemp -d)
 trap "rm -rf $TEMP_KEY_DIR" EXIT
 
-echo "$APK_PRIVATE_KEY" > "$TEMP_KEY_DIR/hamradio.rsa"
-cp keys/raspine.rsa.pub "$TEMP_KEY_DIR/hamradio.rsa.pub"
+echo "$APK_PRIVATE_KEY" > "$TEMP_KEY_DIR/raspine.rsa"
+cp keys/raspine.rsa.pub "$TEMP_KEY_DIR/raspine.rsa.pub"
 
 # Build each package
 for pkg_dir in ${APKBUILD_DIR}/*/; do
@@ -68,15 +68,15 @@ for pkg_dir in ${APKBUILD_DIR}/*/; do
       
       # Setup abuild keys
       mkdir -p /home/builder/.abuild
-      cp /keys/hamradio.rsa /home/builder/.abuild/
+      cp /keys/raspine.rsa /home/builder/.abuild/
       cp /keys/raspine.rsa.pub /home/builder/.abuild/
       chown -R builder:builder /home/builder/.abuild
-      chmod 600 /home/builder/.abuild/hamradio.rsa
-      chmod 644 /home/builder/.abuild/hamradio.rsa.pub
+      chmod 600 /home/builder/.abuild/raspine.rsa
+      chmod 644 /home/builder/.abuild/raspine.rsa.pub
       
       # Configure abuild
       cat > /home/builder/.abuild/abuild.conf << CONF
-PACKAGER_PRIVKEY="/home/builder/.abuild/hamradio.rsa"
+PACKAGER_PRIVKEY="/home/builder/.abuild/raspine.rsa"
 CONF
       chown builder:builder /home/builder/.abuild/abuild.conf
       

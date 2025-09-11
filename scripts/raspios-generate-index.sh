@@ -62,7 +62,7 @@ ls -1 "$REPO_DIR"/*.apk | xargs -n1 basename | sort
 TEMP_KEY_DIR=$(mktemp -d)
 trap "rm -rf $TEMP_KEY_DIR" EXIT
 
-echo "$APK_PRIVATE_KEY" > "$TEMP_KEY_DIR/hamradio.rsa"
+echo "$APK_PRIVATE_KEY" > "$TEMP_KEY_DIR/raspine.rsa"
 cp keys/raspine.rsa.pub "$TEMP_KEY_DIR/"
 
 # Generate index for ALL packages
@@ -76,7 +76,7 @@ docker run --rm \
     set -e
     apk add --no-cache alpine-sdk
     mkdir -p /root/.abuild
-    echo "PACKAGER_PRIVKEY=\"/keys/hamradio.rsa\"" > /root/.abuild/abuild.conf
+    echo "PACKAGER_PRIVKEY=\"/keys/raspine.rsa\"" > /root/.abuild/abuild.conf
     cp /keys/raspine.rsa.pub /etc/apk/keys/
     cd /repo
     
@@ -88,7 +88,7 @@ docker run --rm \
     
     # Generate fresh index for ALL packages
     apk index -o APKINDEX.unsigned.tar.gz *.apk
-    abuild-sign -k /keys/hamradio.rsa APKINDEX.unsigned.tar.gz
+    abuild-sign -k /keys/raspine.rsa APKINDEX.unsigned.tar.gz
     mv APKINDEX.unsigned.tar.gz APKINDEX.tar.gz
     
     # Verify by extracting and counting entries
