@@ -225,6 +225,7 @@ jobs:
         # Using --force-overwrite to handle overlay conflicts between packages
         echo "Installing Raspberry Pi kernels from RasPINE repo..."
         apk add --no-cache --force-overwrite \
+          raspios-firmware \
           raspios-kernel-v6 \
           raspios-kernel-v7 \
           raspios-kernel-v7l \
