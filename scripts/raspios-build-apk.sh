@@ -93,14 +93,6 @@ CONF
         fi
       done
       
-      # For packages with custom dependencies, we might need to skip dependency checking
-      # or use nodeps for the dependency resolution
-      if echo "'$PKG_NAME'" | grep -q "raspios-kernel"; then
-        # Modify APKBUILD to make raspios-firmware optional at build time
-        sed -i "s/^depends=\"raspios-firmware mkinitfs\"/depends=\"mkinitfs\"/" APKBUILD
-        echo "install_if=\"raspios-firmware\"" >> APKBUILD
-      fi
-      
       # Build the package
       su builder -c "abuild -r"
       

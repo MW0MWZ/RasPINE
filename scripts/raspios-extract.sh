@@ -78,8 +78,29 @@ for variant in $VARIANTS; do
     # Copy all other files from the package (preserving directory structure)
     # but skip /usr/lib/linux-image-* since we handled it specially above
     for top_dir in "$pkg_dir"/*; do
+      # Check for circular symlinks before copying
+      if [ -L "$top_dir" ]; then
+        link_target=$(readlink "$top_dir")
+        link_name=$(basename "$top_dir")
+        # Skip if it's a self-referential symlink (like boot -> . or boot -> boot)
+        if [ "$link_target" = "." ] || [ "$link_target" = "./" ] || [ "$link_target" = "boot" ] || [ "$link_name" = "$link_target" ]; then
+          echo "    Skipping circular/self-referential symlink: $top_dir -> $link_target"
+          continue
+        fi
+      fi
+      
       if [ -d "$top_dir" ]; then
         top_dir_name=$(basename "$top_dir")
+        
+        # Special check for /boot directory to prevent circular symlinks
+        if [ "$top_dir_name" = "boot" ]; then
+          # Check if /boot contains a symlink to itself
+          if [ -L "$top_dir/boot" ]; then
+            echo "    Removing circular /boot/boot symlink"
+            rm -f "$top_dir/boot"
+          fi
+        fi
+        
         if [ "$top_dir_name" = "usr" ]; then
           # Handle /usr specially
           for usr_subdir in "$top_dir"/*; do
@@ -108,6 +129,12 @@ for variant in $VARIANTS; do
         else
           # Copy other top-level directories normally
           cp -r "$top_dir" "$VARIANT_DIR/" 2>/dev/null || true
+          
+          # After copying, check for and remove any circular symlinks in /boot
+          if [ -d "$VARIANT_DIR/boot" ] && [ -L "$VARIANT_DIR/boot/boot" ]; then
+            echo "    Removing circular /boot/boot symlink from target"
+            rm -f "$VARIANT_DIR/boot/boot"
+          fi
         fi
       elif [ -f "$top_dir" ]; then
         cp "$top_dir" "$VARIANT_DIR/" 2>/dev/null || true
@@ -125,6 +152,12 @@ for variant in $VARIANTS; do
     echo "  Copying variant-specific headers from $(basename $pkg_dir)"
     cp -r "$pkg_dir"/* "$VARIANT_DIR/" 2>/dev/null || true
   done
+  
+  # Final cleanup: ensure no circular /boot/boot symlink exists
+  if [ -L "$VARIANT_DIR/boot/boot" ]; then
+    echo "  Final cleanup: removing /boot/boot circular symlink"
+    rm -f "$VARIANT_DIR/boot/boot"
+  fi
   
   # Create tarball if files exist
   if [ -d "$VARIANT_DIR/boot" ] || [ -d "$VARIANT_DIR/lib" ] || [ -d "$VARIANT_DIR/usr" ]; then
