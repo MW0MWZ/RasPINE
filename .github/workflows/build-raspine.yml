@@ -968,45 +968,51 @@ jobs:
         </html>
         EOF
 
-    - name: Checkout gh-pages branch
-      if: github.ref == 'refs/heads/main'
-      uses: actions/checkout@v4
-      with:
-        ref: gh-pages
-        path: gh-pages-branch
-
     - name: Update gh-pages branch
       if: github.ref == 'refs/heads/main'
       run: |
+        # Configure git
+        git config --global user.name 'github-actions[bot]'
+        git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+        
+        # Clone gh-pages branch into a separate directory
+        git clone --branch gh-pages --single-branch https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git gh-pages-deploy || {
+          # If gh-pages doesn't exist, create it
+          echo "gh-pages branch doesn't exist, creating..."
+          git clone https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git gh-pages-deploy
+          cd gh-pages-deploy
+          git checkout --orphan gh-pages
+          git rm -rf . 2>/dev/null || true
+          cd ..
+        }
+        
         # Create downloads directory if it doesn't exist
-        mkdir -p gh-pages-branch/downloads
+        mkdir -p gh-pages-deploy/downloads
         
-        # Copy new files to gh-pages branch (metadata only, not the large images)
-        cp -r gh-pages/downloads/* gh-pages-branch/downloads/
+        # Copy our downloads to the gh-pages directory
+        cp -r gh-pages/downloads/* gh-pages-deploy/downloads/ 2>/dev/null || cp -r gh-pages/downloads gh-pages-deploy/
         
-        # Clean up old metadata files (keep only 10 latest builds)
-        cd gh-pages-branch/downloads
-        
-        # Remove old .img.xz.html redirect files
-        ls -t RasPINE-*.img.xz.html 2>/dev/null | tail -n +11 | xargs rm -f 2>/dev/null || true
-        
-        # Remove old checksum files
-        ls -t RasPINE-*.img.xz.sha256 2>/dev/null | tail -n +11 | xargs rm -f 2>/dev/null || true
-        
-        # Remove old info files
-        ls -t RasPINE-*.info.txt 2>/dev/null | tail -n +11 | xargs rm -f 2>/dev/null || true
+        # Commit and push from the gh-pages directory
+        cd gh-pages-deploy
         
         # Add .gitignore to prevent accidentally committing large files
-        echo "*.img.xz" > .gitignore
-        echo "!*.img.xz.html" >> .gitignore
-        echo "!*.img.xz.sha256" >> .gitignore
+        echo "*.img.xz" > downloads/.gitignore
+        echo "!*.img.xz.html" >> downloads/.gitignore
+        echo "!*.img.xz.sha256" >> downloads/.gitignore
         
-        # Commit and push
-        git config user.name "GitHub Actions"
-        git config user.email "actions@github.com"
         git add .
         git commit -m "Update RasPINE build ${BUILD_DATE} (metadata only)" || echo "No changes to commit"
-        git push
+        
+        # Push with retry logic
+        for i in {1..3}; do
+          git pull --rebase origin gh-pages 2>/dev/null || true
+          if git push origin gh-pages; then
+            echo "Successfully pushed to gh-pages"
+            break
+          fi
+          echo "Push attempt $i failed, retrying..."
+          sleep 2
+        done
 
     - name: Cleanup old releases
       if: github.ref == 'refs/heads/main'
