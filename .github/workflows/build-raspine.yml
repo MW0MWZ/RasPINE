@@ -9,6 +9,11 @@ on:
         required: false
         default: false
 
+# Add concurrency control to prevent gh-pages conflicts
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false  # Don't cancel, queue instead
+
 env:
   ALPINE_VERSION: "3.22"
   ALPINE_ARCH: "armhf"

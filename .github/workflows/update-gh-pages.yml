@@ -1,0 +1,335 @@
+name: Update GitHub Pages
+
+on:
+  workflow_call:
+    inputs:
+      update_type:
+        required: true
+        type: string
+        description: 'Type of update: packages, image, or both'
+      build_date:
+        required: false
+        type: string
+        description: 'Build date for image updates'
+      package_info:
+        required: false
+        type: string
+        description: 'JSON string with package information'
+
+# Use concurrency to queue updates instead of canceling
+concurrency:
+  group: gh-pages-update
+  cancel-in-progress: false  # Queue updates instead of canceling
+
+jobs:
+  update-gh-pages:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Setup git config
+      run: |
+        git config --global user.name 'github-actions[bot]'
+        git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+
+    - name: Clone or create gh-pages branch
+      run: |
+        # Clone gh-pages branch into a separate directory
+        if git ls-remote --heads origin gh-pages | grep -q gh-pages; then
+          echo "gh-pages branch exists, cloning..."
+          git clone --branch gh-pages --single-branch https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git gh-pages-deploy
+        else
+          echo "gh-pages branch doesn't exist, creating..."
+          git clone https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git gh-pages-deploy
+          cd gh-pages-deploy
+          git checkout --orphan gh-pages
+          git rm -rf . 2>/dev/null || true
+          echo "# GitHub Pages" > README.md
+          git add README.md
+          git commit -m "Initial gh-pages commit"
+          cd ..
+        fi
+
+    - name: Update package repository content
+      if: contains(inputs.update_type, 'packages')
+      run: |
+        echo "Updating package repository content..."
+        
+        # Parse package info if provided
+        if [ -n "${{ inputs.package_info }}" ]; then
+          echo '${{ inputs.package_info }}' > /tmp/package_info.json
+          
+          # Extract package files from the JSON
+          # This would need to be implemented based on your package structure
+          echo "Package repository update logic would go here"
+        fi
+        
+        # Create/update package index
+        mkdir -p gh-pages-deploy/packages
+        
+        # TODO: Add your package repository index generation here
+        cat > gh-pages-deploy/packages/index.html << 'EOF'
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>RasPINE Package Repository</title>
+            <style>
+                body {
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                    background: linear-gradient(135deg, #0f1419 0%, #1a202c 100%);
+                    color: #e2e8f0;
+                    padding: 40px;
+                    margin: 0;
+                }
+                h1 { color: #4a8fb9; }
+                .package-info {
+                    background: rgba(26, 32, 44, 0.8);
+                    border-radius: 10px;
+                    padding: 20px;
+                    margin: 20px 0;
+                }
+            </style>
+        </head>
+        <body>
+            <h1>📦 RasPINE Package Repository</h1>
+            <div class="package-info">
+                <p>APK packages for RasPINE systems</p>
+                <p>Last updated: $(date -u '+%Y-%m-%d %H:%M:%S UTC')</p>
+            </div>
+        </body>
+        </html>
+        EOF
+
+    - name: Update image download content
+      if: contains(inputs.update_type, 'image')
+      run: |
+        echo "Updating image download content..."
+        BUILD_DATE="${{ inputs.build_date }}"
+        
+        if [ -z "$BUILD_DATE" ]; then
+          echo "ERROR: build_date is required for image updates"
+          exit 1
+        fi
+        
+        mkdir -p gh-pages-deploy/downloads
+        
+        # Create download redirect page
+        cat > gh-pages-deploy/downloads/RasPINE-${BUILD_DATE}.img.xz.html << EOF
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <title>Downloading RasPINE-${BUILD_DATE}.img.xz</title>
+            <meta http-equiv="refresh" content="0; url=https://github.com/${{ github.repository }}/releases/download/v${BUILD_DATE}/RasPINE-${BUILD_DATE}.img.xz">
+            <style>
+                body {
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                    background: linear-gradient(135deg, #0f1419 0%, #1a202c 100%);
+                    color: #e2e8f0;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    min-height: 100vh;
+                    margin: 0;
+                }
+                .container {
+                    text-align: center;
+                    padding: 40px;
+                    background: rgba(26, 32, 44, 0.8);
+                    border-radius: 15px;
+                    box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+                }
+                h1 { color: #4a8fb9; margin-bottom: 20px; }
+                a {
+                    color: #4a8fb9;
+                    text-decoration: none;
+                    padding: 10px 20px;
+                    border: 2px solid #4a8fb9;
+                    border-radius: 8px;
+                    display: inline-block;
+                    margin-top: 20px;
+                    transition: all 0.3s ease;
+                }
+                a:hover {
+                    background: #4a8fb9;
+                    color: white;
+                }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <h1>📥 Downloading RasPINE Image</h1>
+                <p>Your download should start automatically...</p>
+                <p>If it doesn't start, please click the link below:</p>
+                <a href="https://github.com/${{ github.repository }}/releases/download/v${BUILD_DATE}/RasPINE-${BUILD_DATE}.img.xz">
+                    Download RasPINE-${BUILD_DATE}.img.xz
+                </a>
+                <p style="margin-top: 30px; opacity: 0.8;">Build Date: ${BUILD_DATE}</p>
+            </div>
+        </body>
+        </html>
+        EOF
+        
+        # Update latest symlinks
+        cd gh-pages-deploy/downloads
+        ln -sf "RasPINE-${BUILD_DATE}.img.xz.html" "RasPINE-latest.img.xz.html"
+        
+        # Update downloads index
+        cat > index.html << 'EOF'
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <title>RasPINE Downloads</title>
+            <style>
+                body {
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                    background: linear-gradient(135deg, #0f1419 0%, #1a202c 100%);
+                    color: #e2e8f0;
+                    padding: 40px;
+                    margin: 0;
+                }
+                h1 { color: #4a8fb9; }
+                .download-card {
+                    background: rgba(26, 32, 44, 0.8);
+                    border-radius: 10px;
+                    padding: 20px;
+                    margin: 20px 0;
+                    border: 1px solid #2d3748;
+                }
+                a { color: #4a8fb9; text-decoration: none; }
+                a:hover { text-decoration: underline; }
+            </style>
+        </head>
+        <body>
+            <h1>🏔️ RasPINE Downloads</h1>
+            <div class="download-card">
+                <h2>Latest Build</h2>
+                <p>Download links redirect to GitHub Releases for reliable, fast downloads.</p>
+                <ul>
+                    <li><a href="RasPINE-latest.img.xz.html">📥 Download Latest Image</a></li>
+                    <li><a href="https://github.com/${{ github.repository }}/releases/latest">📋 View Release Notes</a></li>
+                </ul>
+            </div>
+            <div class="download-card">
+                <h2>All Releases</h2>
+                <p><a href="https://github.com/${{ github.repository }}/releases">View all releases on GitHub →</a></p>
+            </div>
+        </body>
+        </html>
+        EOF
+        
+        cd ../..
+
+    - name: Create main index if needed
+      run: |
+        if [ ! -f gh-pages-deploy/index.html ]; then
+          cat > gh-pages-deploy/index.html << 'EOF'
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <title>RasPINE - Raspberry Pi Alpine System</title>
+            <style>
+                body {
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                    background: linear-gradient(135deg, #0f1419 0%, #1a202c 100%);
+                    color: #e2e8f0;
+                    padding: 40px;
+                    margin: 0;
+                }
+                h1 { color: #4a8fb9; }
+                .nav-card {
+                    background: rgba(26, 32, 44, 0.8);
+                    border-radius: 10px;
+                    padding: 20px;
+                    margin: 20px 0;
+                    border: 1px solid #2d3748;
+                }
+                a { color: #4a8fb9; text-decoration: none; }
+                a:hover { text-decoration: underline; }
+            </style>
+        </head>
+        <body>
+            <h1>🏔️ RasPINE</h1>
+            <p>Raspberry Pi OS kernel with Alpine Linux userland</p>
+            
+            <div class="nav-card">
+                <h2>📥 Downloads</h2>
+                <p><a href="/downloads/">Download RasPINE images</a></p>
+            </div>
+            
+            <div class="nav-card">
+                <h2>📦 Package Repository</h2>
+                <p><a href="/packages/">Browse APK packages</a></p>
+            </div>
+            
+            <div class="nav-card">
+                <h2>📚 Documentation</h2>
+                <p><a href="https://github.com/${{ github.repository }}">View on GitHub</a></p>
+            </div>
+        </body>
+        </html>
+        EOF
+        fi
+
+    - name: Add safety files
+      run: |
+        # Add .gitignore to prevent large files
+        echo "*.img.xz" > gh-pages-deploy/.gitignore
+        echo "*.apk" >> gh-pages-deploy/.gitignore
+        echo "!*.img.xz.html" >> gh-pages-deploy/.gitignore
+        
+        # Add .nojekyll to prevent Jekyll processing
+        touch gh-pages-deploy/.nojekyll
+
+    - name: Commit and push changes
+      run: |
+        cd gh-pages-deploy
+        
+        git add .
+        
+        # Create commit message based on update type
+        COMMIT_MSG="Update GitHub Pages"
+        if [ "${{ inputs.update_type }}" = "packages" ]; then
+          COMMIT_MSG="Update package repository"
+        elif [ "${{ inputs.update_type }}" = "image" ]; then
+          COMMIT_MSG="Update image downloads for ${{ inputs.build_date }}"
+        elif [ "${{ inputs.update_type }}" = "both" ]; then
+          COMMIT_MSG="Update packages and image downloads"
+        fi
+        
+        git commit -m "$COMMIT_MSG" || {
+          echo "No changes to commit"
+          exit 0
+        }
+        
+        # Push with retry logic and pull before push
+        for i in {1..5}; do
+          echo "Push attempt $i..."
+          
+          # Pull and rebase any remote changes
+          git pull --rebase origin gh-pages || {
+            echo "No remote branch yet or rebase failed, trying to push..."
+          }
+          
+          # Try to push
+          if git push origin gh-pages; then
+            echo "Successfully pushed to gh-pages"
+            exit 0
+          fi
+          
+          echo "Push failed, waiting before retry..."
+          sleep $((i * 2))  # Exponential backoff
+        done
+        
+        echo "Failed to push after 5 attempts"
+        exit 1
