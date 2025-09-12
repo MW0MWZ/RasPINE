@@ -26,6 +26,72 @@ fi
 echo "Original kernel version: $KERNEL_VERSION"
 echo "Alpine-compatible version: $PKG_VERSION"
 
+# Function to determine release number by checking existing packages
+get_release_number() {
+  local package_name=$1
+  local package_version=$2
+  local release_num=0
+  
+  # Check if we're in GitHub Actions and can check gh-pages
+  if [ -n "$GITHUB_ACTIONS" ] && [ -n "$GITHUB_REPOSITORY" ]; then
+    echo "Checking for existing packages in gh-pages..." >&2
+    
+    # Try to fetch the existing APKINDEX from gh-pages to check versions
+    # This is more efficient than cloning the entire gh-pages branch
+    for version in 3.22 3.21; do
+      for arch in x86_64 armhf aarch64; do
+        # Only check our current architecture and Alpine version
+        if [ "$arch" = "$ARCH" ] && [ "$version" = "$ALPINE_VERSION" ]; then
+          APKINDEX_URL="https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/gh-pages/v${version}/community/${arch}/APKINDEX.tar.gz"
+          
+          # Try to download the APKINDEX
+          if wget -q -O /tmp/apkindex_check.tar.gz "$APKINDEX_URL" 2>/dev/null; then
+            # Extract and check for our package
+            if tar -xzOf /tmp/apkindex_check.tar.gz APKINDEX 2>/dev/null | grep -A 5 "^P:${package_name}$" | grep -q "^V:${package_version}-r"; then
+              # Extract the highest release number for this version
+              EXISTING_RELEASE=$(tar -xzOf /tmp/apkindex_check.tar.gz APKINDEX 2>/dev/null | \
+                grep -A 5 "^P:${package_name}$" | \
+                grep "^V:${package_version}-r" | \
+                sed "s/^V:${package_version}-r//" | \
+                cut -d. -f1 | \
+                sort -n | tail -1)
+              
+              if [ -n "$EXISTING_RELEASE" ] && [ "$EXISTING_RELEASE" -ge 0 ]; then
+                release_num=$((EXISTING_RELEASE + 1))
+                echo "  Found existing ${package_name}-${package_version}-r${EXISTING_RELEASE}, will use r${release_num}" >&2
+              fi
+            fi
+            rm -f /tmp/apkindex_check.tar.gz
+          fi
+        fi
+      done
+    done
+  fi
+  
+  # Also check what we've already built in this run
+  REPO_DIR="repo/v${ALPINE_VERSION}/community/${ARCH}"
+  if [ -d "$REPO_DIR" ]; then
+    EXISTING_IN_RUN=$(ls -1 "$REPO_DIR/${package_name}-${package_version}-r"*.apk 2>/dev/null | sort -V || true)
+    
+    if [ -n "$EXISTING_IN_RUN" ]; then
+      for PKG_FILE in $EXISTING_IN_RUN; do
+        CURRENT_RELEASE=$(echo "$PKG_FILE" | sed -n "s/.*-r\([0-9]*\)\.apk/\1/p")
+        if [ -n "$CURRENT_RELEASE" ] && [ "$CURRENT_RELEASE" -ge "$release_num" ]; then
+          release_num=$((CURRENT_RELEASE + 1))
+          echo "  Found ${package_name}-${package_version}-r${CURRENT_RELEASE} in current build, will use r${release_num}" >&2
+        fi
+      done
+    fi
+  fi
+  
+  # If we didn't find any existing packages, use 0
+  if [ "$release_num" -eq 0 ]; then
+    echo "  No existing packages found for ${package_name}-${package_version}, using r0" >&2
+  fi
+  
+  echo "$release_num"
+}
+
 # Build firmware package first if it exists (so kernels can reference it)
 if [ -f "${OUTPUT_DIR}/raspios-firmware.tar.gz" ]; then
   FIRMWARE_VERSION=$(date +%Y.%m.%d)
@@ -304,6 +370,7 @@ POST_INSTALL_BODY
 APKBUILD_HEADER
     
     # Now append the rest with proper variable substitution
+    # FIXED: Only depend on mkinitfs, recommend firmware at runtime
     cat >> "${PKG_DIR}/APKBUILD" << EOF
 pkgname=raspios-kernel-${variant}
 pkgver=${PKG_VERSION}
