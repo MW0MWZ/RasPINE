@@ -1,0 +1,171 @@
+name: Master Build Pipeline
+
+on:
+  schedule:
+    - cron: '0 2 * * 1'  # Weekly on Monday at 2 AM UTC
+  workflow_dispatch:
+    inputs:
+      force_update:
+        type: boolean
+        description: 'Force update even if no changes detected'
+        required: false
+        default: false
+      skip_packages:
+        type: boolean
+        description: 'Skip package conversion'
+        required: false
+        default: false
+      skip_image:
+        type: boolean
+        description: 'Skip image build'
+        required: false
+        default: false
+
+# Prevent concurrent runs - queue them instead
+concurrency:
+  group: master-pipeline
+  cancel-in-progress: false
+
+jobs:
+  check-updates:
+    name: Check for Updates
+    runs-on: ubuntu-latest
+    outputs:
+      needs_update: ${{ steps.check.outputs.needs_update }}
+      kernel_version: ${{ steps.check.outputs.kernel_version }}
+      firmware_date: ${{ steps.check.outputs.firmware_date }}
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Check for Raspberry Pi OS updates
+      id: check
+      run: |
+        set -e
+        
+        echo "::group::Checking for updates"
+        
+        # Check if force update requested
+        if [ "${{ github.event.inputs.force_update }}" = "true" ]; then
+          echo "Force update requested"
+          echo "needs_update=true" >> $GITHUB_OUTPUT
+          echo "kernel_version=forced" >> $GITHUB_OUTPUT
+          echo "firmware_date=$(date +%Y.%m.%d)" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+        
+        # Check Raspberry Pi OS repository
+        REPO_BASE="http://archive.raspberrypi.org/debian"
+        RASPIOS_DIST="bookworm"
+        
+        # Get latest kernel version
+        LATEST_KERNEL=$(curl -s "${REPO_BASE}/dists/${RASPIOS_DIST}/main/binary-armhf/Packages.gz" | \
+                        gunzip | grep -A 10 "^Package: raspberrypi-kernel$" | \
+                        grep "^Version:" | cut -d' ' -f2 | head -1)
+        
+        echo "Latest kernel version: $LATEST_KERNEL"
+        
+        # Check if we have a stored version
+        NEEDS_UPDATE=false
+        if [ -f .last_build_info ]; then
+          source .last_build_info
+          if [ "$LAST_KERNEL_VERSION" != "$LATEST_KERNEL" ]; then
+            echo "Kernel update detected: $LAST_KERNEL_VERSION -> $LATEST_KERNEL"
+            NEEDS_UPDATE=true
+          else
+            # Check if it's been more than 30 days since last build
+            LAST_BUILD_EPOCH=${LAST_BUILD_DATE:-0}
+            CURRENT_EPOCH=$(date +%s)
+            DAYS_SINCE_BUILD=$(( (CURRENT_EPOCH - LAST_BUILD_EPOCH) / 86400 ))
+            
+            if [ $DAYS_SINCE_BUILD -gt 30 ]; then
+              echo "Last build was $DAYS_SINCE_BUILD days ago, triggering monthly rebuild"
+              NEEDS_UPDATE=true
+            fi
+          fi
+        else
+          echo "No previous build info found, needs initial build"
+          NEEDS_UPDATE=true
+        fi
+        
+        FIRMWARE_DATE=$(date +%Y.%m.%d)
+        
+        echo "needs_update=$NEEDS_UPDATE" >> $GITHUB_OUTPUT
+        echo "kernel_version=$LATEST_KERNEL" >> $GITHUB_OUTPUT
+        echo "firmware_date=$FIRMWARE_DATE" >> $GITHUB_OUTPUT
+        
+        if [ "$NEEDS_UPDATE" = "true" ]; then
+          echo "📦 Updates needed! Will trigger build process."
+        else
+          echo "✅ No updates needed."
+        fi
+        
+        echo "::endgroup::"
+
+  build-packages:
+    name: Build APK Packages
+    needs: check-updates
+    if: needs.check-updates.outputs.needs_update == 'true' && github.event.inputs.skip_packages != 'true'
+    uses: ./.github/workflows/build-raspios-packages.yml
+    with:
+      raspios_dist: 'bookworm'
+      alpine_version: 'all'
+      package_types: 'all'
+    secrets: inherit
+
+  build-image:
+    name: Build RasPINE Image
+    needs: [check-updates, build-packages]
+    if: |
+      always() && 
+      needs.check-updates.outputs.needs_update == 'true' && 
+      github.event.inputs.skip_image != 'true' &&
+      (needs.build-packages.result == 'success' || needs.build-packages.result == 'skipped')
+    uses: ./.github/workflows/build-raspine.yml
+    secrets: inherit
+
+  update-build-info:
+    name: Update Build Information
+    needs: [check-updates, build-packages, build-image]
+    if: always() && needs.check-updates.outputs.needs_update == 'true'
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Update build info
+      run: |
+        cat > .last_build_info << EOF
+        LAST_KERNEL_VERSION="${{ needs.check-updates.outputs.kernel_version }}"
+        LAST_BUILD_DATE=$(date +%s)
+        LAST_BUILD_TIMESTAMP="$(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+        LAST_FIRMWARE_DATE="${{ needs.check-updates.outputs.firmware_date }}"
+        EOF
+        
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        
+        git add .last_build_info
+        git commit -m "Update build info [skip ci]" || echo "No changes to commit"
+        git push || echo "No changes to push"
+
+  cleanup:
+    name: Cleanup Old Artifacts
+    needs: [build-packages, build-image]
+    if: always()
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Cleanup old releases
+      uses: dev-drprasad/delete-older-releases@v0.3.4
+      with:
+        keep_latest: 6
+        delete_tags: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
