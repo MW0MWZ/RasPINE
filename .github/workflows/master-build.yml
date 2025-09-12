@@ -127,6 +127,114 @@ jobs:
     uses: ./.github/workflows/build-raspine.yml
     secrets: inherit
 
+  update-gh-pages:
+    name: Update GitHub Pages
+    needs: [check-updates, build-packages, build-image]
+    if: |
+      always() && 
+      needs.check-updates.outputs.needs_update == 'true' &&
+      (needs.build-packages.result == 'success' || needs.build-image.result == 'success')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup Git
+      run: |
+        git config --global user.name 'github-actions[bot]'
+        git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+
+    - name: Update GitHub Pages
+      run: |
+        # Clone gh-pages branch
+        if git ls-remote --heads origin gh-pages | grep -q gh-pages; then
+          git clone --branch gh-pages --single-branch \
+            https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git \
+            gh-pages
+        else
+          mkdir gh-pages
+          cd gh-pages
+          git init
+          git checkout -b gh-pages
+          cd ..
+        fi
+        
+        # Create basic structure
+        mkdir -p gh-pages/{downloads,packages}
+        touch gh-pages/.nojekyll
+        
+        # Create main index
+        cat > gh-pages/index.html << 'EOF'
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>RasPINE</title>
+            <style>
+                body { font-family: sans-serif; padding: 40px; }
+                h1 { color: #4a8fb9; }
+                .card { background: #f0f0f0; padding: 20px; margin: 20px 0; border-radius: 8px; }
+                a { color: #4a8fb9; text-decoration: none; }
+                a:hover { text-decoration: underline; }
+            </style>
+        </head>
+        <body>
+            <h1>🏔️ RasPINE</h1>
+            <p>Raspberry Pi OS kernel with Alpine Linux userland</p>
+            <div class="card">
+                <h2>📥 Downloads</h2>
+                <p><a href="/downloads/">Download latest image</a></p>
+            </div>
+            <div class="card">
+                <h2>📦 Packages</h2>
+                <p><a href="https://raspine.pistar.uk">APK Repository</a></p>
+            </div>
+            <div class="card">
+                <h2>📚 Source</h2>
+                <p><a href="https://github.com/${{ github.repository }}">GitHub Repository</a></p>
+            </div>
+        </body>
+        </html>
+        EOF
+        
+        # Update downloads if image was built
+        if [ "${{ needs.build-image.result }}" = "success" ]; then
+          BUILD_DATE=$(date +'%Y-%m-%d')
+          
+          cat > gh-pages/downloads/index.html << EOF
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>RasPINE Downloads</title>
+            <meta http-equiv="refresh" content="0; url=https://github.com/${{ github.repository }}/releases/latest">
+        </head>
+        <body>
+            <p>Redirecting to latest release...</p>
+            <p><a href="https://github.com/${{ github.repository }}/releases/latest">Click here if not redirected</a></p>
+        </body>
+        </html>
+        EOF
+        fi
+        
+        # Commit and push
+        cd gh-pages
+        git add .
+        git commit -m "Update GitHub Pages - $(date +'%Y-%m-%d')" || exit 0
+        
+        # Push with retry
+        for i in {1..3}; do
+          git pull --rebase origin gh-pages 2>/dev/null || true
+          if git push origin gh-pages; then
+            echo "Successfully pushed to gh-pages"
+            break
+          fi
+          sleep 2
+        done
+
   update-build-info:
     name: Update Build Information
     needs: [check-updates, build-packages, build-image]
@@ -136,8 +244,6 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Update build info
       run: |
@@ -163,6 +269,7 @@ jobs:
     
     steps:
     - name: Cleanup old releases
+      if: needs.build-image.result == 'success'
       uses: dev-drprasad/delete-older-releases@v0.3.4
       with:
         keep_latest: 6
