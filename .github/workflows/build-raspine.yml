@@ -460,11 +460,26 @@ jobs:
         if [ -d /mnt/root/boot/firmware ] && [ "$(ls -A /mnt/root/boot/firmware)" ]; then
             echo "Found boot files in /boot/firmware, copying to boot partition..."
             sudo cp -a /mnt/root/boot/firmware/* /mnt/boot/
+            
+            # Verify critical files exist
+            if [ ! -f /mnt/boot/cmdline.txt ]; then
+                echo "ERROR: cmdline.txt not found - raspios-firmware package issue!"
+                exit 1
+            fi
+            if [ ! -f /mnt/boot/config.txt ]; then
+                echo "ERROR: config.txt not found - raspios-firmware package issue!"
+                exit 1
+            fi
+            
+            echo "Boot files copied from raspios-firmware package:"
+            echo "  - config.txt: $(head -1 /mnt/boot/config.txt)"
+            echo "  - cmdline.txt: $(cat /mnt/boot/cmdline.txt)"
         else
-            echo "Warning: No boot files found in /boot/firmware"
+            echo "ERROR: No boot files found in /boot/firmware - check raspios-firmware package!"
+            exit 1
         fi
-               
-        echo "✓ Boot partition configured"
+        
+        echo "✓ Boot partition configured with files from raspios-firmware package"
 
     - name: Create boot configuration system
       run: |
@@ -819,28 +834,138 @@ jobs:
       run: |
         mkdir -p gh-pages/{downloads,assets}
         
-        # Copy latest build
-        cp RasPINE-*.img.xz gh-pages/downloads/
-        cp RasPINE-*.img.xz.sha256 gh-pages/downloads/
+        # DO NOT copy the large image files - they go in GitHub Releases
+        # Only copy metadata files
         cp RasPINE-*.info.txt gh-pages/downloads/
+        cp RasPINE-*.img.xz.sha256 gh-pages/downloads/
         
-        # Create latest symlinks
+        # Create a download redirect page for the image
+        cat > gh-pages/downloads/RasPINE-${BUILD_DATE}.img.xz.html << EOF
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <title>Downloading RasPINE-${BUILD_DATE}.img.xz</title>
+            <meta http-equiv="refresh" content="0; url=https://github.com/MW0MWZ/RasPINE/releases/download/v${BUILD_DATE}/RasPINE-${BUILD_DATE}.img.xz">
+            <style>
+                body {
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                    background: linear-gradient(135deg, #0f1419 0%, #1a202c 100%);
+                    color: #e2e8f0;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    min-height: 100vh;
+                    margin: 0;
+                }
+                .container {
+                    text-align: center;
+                    padding: 40px;
+                    background: rgba(26, 32, 44, 0.8);
+                    border-radius: 15px;
+                    box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+                }
+                h1 { color: #4a8fb9; margin-bottom: 20px; }
+                p { margin: 15px 0; }
+                a {
+                    color: #4a8fb9;
+                    text-decoration: none;
+                    padding: 10px 20px;
+                    border: 2px solid #4a8fb9;
+                    border-radius: 8px;
+                    display: inline-block;
+                    margin-top: 20px;
+                    transition: all 0.3s ease;
+                }
+                a:hover {
+                    background: #4a8fb9;
+                    color: white;
+                }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <h1>📥 Downloading RasPINE Image</h1>
+                <p>Your download should start automatically...</p>
+                <p>If it doesn't start, please click the link below:</p>
+                <a href="https://github.com/MW0MWZ/RasPINE/releases/download/v${BUILD_DATE}/RasPINE-${BUILD_DATE}.img.xz">
+                    Download RasPINE-${BUILD_DATE}.img.xz
+                </a>
+                <p style="margin-top: 30px; opacity: 0.8;">
+                    Size: $(du -h RasPINE-${BUILD_DATE}.img.xz | cut -f1) | 
+                    Build Date: ${BUILD_DATE}
+                </p>
+            </div>
+        </body>
+        </html>
+        EOF
+        
+        # Create symlinks for latest versions
         cd gh-pages/downloads
-        ln -sf "RasPINE-${BUILD_DATE}.img.xz" "RasPINE-latest.img.xz"
+        ln -sf "RasPINE-${BUILD_DATE}.img.xz.html" "RasPINE-latest.img.xz.html"
         ln -sf "RasPINE-${BUILD_DATE}.img.xz.sha256" "RasPINE-latest.img.xz.sha256"
         ln -sf "RasPINE-${BUILD_DATE}.info.txt" "RasPINE-latest.info.txt"
         cd ../..
         
-        # Create download index
+        # Create download index with GitHub Release URLs
         cat > gh-pages/downloads/index.json << EOF
         {
           "latest": "${BUILD_DATE}",
           "filename": "RasPINE-${BUILD_DATE}.img.xz",
+          "download_url": "https://github.com/MW0MWZ/RasPINE/releases/download/v${BUILD_DATE}/RasPINE-${BUILD_DATE}.img.xz",
+          "info_url": "/downloads/RasPINE-${BUILD_DATE}.info.txt",
+          "checksum_url": "/downloads/RasPINE-${BUILD_DATE}.img.xz.sha256",
           "size": "$(du -h RasPINE-${BUILD_DATE}.img.xz | cut -f1)",
           "sha256": "$(cut -d' ' -f1 < RasPINE-${BUILD_DATE}.img.xz.sha256)",
           "alpine_version": "${ALPINE_VERSION}",
           "arch": "${ALPINE_ARCH}"
         }
+        EOF
+        
+        # Create a downloads listing page
+        cat > gh-pages/downloads/index.html << 'EOF'
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <title>RasPINE Downloads</title>
+            <style>
+                body {
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                    background: linear-gradient(135deg, #0f1419 0%, #1a202c 100%);
+                    color: #e2e8f0;
+                    padding: 40px;
+                    margin: 0;
+                }
+                h1 { color: #4a8fb9; }
+                .download-card {
+                    background: rgba(26, 32, 44, 0.8);
+                    border-radius: 10px;
+                    padding: 20px;
+                    margin: 20px 0;
+                    border: 1px solid #2d3748;
+                }
+                a { color: #4a8fb9; text-decoration: none; }
+                a:hover { text-decoration: underline; }
+            </style>
+        </head>
+        <body>
+            <h1>🏔️ RasPINE Downloads</h1>
+            <div class="download-card">
+                <h2>Latest Build</h2>
+                <p>Download links redirect to GitHub Releases for reliable, fast downloads.</p>
+                <ul>
+                    <li><a href="RasPINE-latest.img.xz.html">📥 Download Latest Image</a></li>
+                    <li><a href="RasPINE-latest.img.xz.sha256">🔒 SHA256 Checksum</a></li>
+                    <li><a href="RasPINE-latest.info.txt">ℹ️ Build Information</a></li>
+                </ul>
+            </div>
+            <div class="download-card">
+                <h2>All Releases</h2>
+                <p><a href="https://github.com/MW0MWZ/RasPINE/releases">View all releases on GitHub →</a></p>
+            </div>
+        </body>
+        </html>
         EOF
 
     - name: Checkout gh-pages branch
@@ -856,20 +981,31 @@ jobs:
         # Create downloads directory if it doesn't exist
         mkdir -p gh-pages-branch/downloads
         
-        # Copy new files to gh-pages branch
+        # Copy new files to gh-pages branch (metadata only, not the large images)
         cp -r gh-pages/downloads/* gh-pages-branch/downloads/
         
-        # Keep only 6 latest builds
+        # Clean up old metadata files (keep only 10 latest builds)
         cd gh-pages-branch/downloads
-        ls -t RasPINE-*.img.xz 2>/dev/null | tail -n +7 | xargs rm -f 2>/dev/null || true
-        ls -t RasPINE-*.img.xz.sha256 2>/dev/null | tail -n +7 | xargs rm -f 2>/dev/null || true
-        ls -t RasPINE-*.info.txt 2>/dev/null | tail -n +7 | xargs rm -f 2>/dev/null || true
+        
+        # Remove old .img.xz.html redirect files
+        ls -t RasPINE-*.img.xz.html 2>/dev/null | tail -n +11 | xargs rm -f 2>/dev/null || true
+        
+        # Remove old checksum files
+        ls -t RasPINE-*.img.xz.sha256 2>/dev/null | tail -n +11 | xargs rm -f 2>/dev/null || true
+        
+        # Remove old info files
+        ls -t RasPINE-*.info.txt 2>/dev/null | tail -n +11 | xargs rm -f 2>/dev/null || true
+        
+        # Add .gitignore to prevent accidentally committing large files
+        echo "*.img.xz" > .gitignore
+        echo "!*.img.xz.html" >> .gitignore
+        echo "!*.img.xz.sha256" >> .gitignore
         
         # Commit and push
         git config user.name "GitHub Actions"
         git config user.email "actions@github.com"
         git add .
-        git commit -m "Update RasPINE build ${BUILD_DATE}" || echo "No changes to commit"
+        git commit -m "Update RasPINE build ${BUILD_DATE} (metadata only)" || echo "No changes to commit"
         git push
 
     - name: Cleanup old releases
