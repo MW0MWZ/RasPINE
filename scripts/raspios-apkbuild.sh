@@ -26,54 +26,6 @@ fi
 echo "Original kernel version: $KERNEL_VERSION"
 echo "Alpine-compatible version: $PKG_VERSION"
 
-# Function to determine release number by checking existing packages
-get_release_number() {
-  local package_name=$1
-  local package_version=$2
-  local release_num=0
-  
-  # Check if we're in a GitHub Actions environment and have access to gh-pages
-  if [ -d "gh-pages-check" ]; then
-    # Check all architectures and Alpine versions for existing packages
-    for version in 3.22 3.21; do
-      for arch in x86_64 armhf aarch64; do
-        GH_PAGES_DIR="gh-pages-check/v${version}/community/${arch}"
-        if [ -d "$GH_PAGES_DIR" ]; then
-          # Look for existing packages with the same version
-          EXISTING_PACKAGES=$(ls -1 "$GH_PAGES_DIR/${package_name}-${package_version}-r"*.apk 2>/dev/null | sort -V || true)
-          
-          if [ -n "$EXISTING_PACKAGES" ]; then
-            # Extract the highest release number
-            for PKG_FILE in $EXISTING_PACKAGES; do
-              CURRENT_RELEASE=$(echo "$PKG_FILE" | sed -n "s/.*-r\([0-9]*\)\.apk/\1/p")
-              if [ -n "$CURRENT_RELEASE" ] && [ "$CURRENT_RELEASE" -ge "$release_num" ]; then
-                release_num=$((CURRENT_RELEASE + 1))
-              fi
-            done
-          fi
-        fi
-      done
-    done
-  fi
-  
-  # Also check what we've already built in this run
-  REPO_DIR="repo/v${ALPINE_VERSION}/community/${ARCH}"
-  if [ -d "$REPO_DIR" ]; then
-    EXISTING_IN_RUN=$(ls -1 "$REPO_DIR/${package_name}-${package_version}-r"*.apk 2>/dev/null | sort -V || true)
-    
-    if [ -n "$EXISTING_IN_RUN" ]; then
-      for PKG_FILE in $EXISTING_IN_RUN; do
-        CURRENT_RELEASE=$(echo "$PKG_FILE" | sed -n "s/.*-r\([0-9]*\)\.apk/\1/p")
-        if [ -n "$CURRENT_RELEASE" ] && [ "$CURRENT_RELEASE" -ge "$release_num" ]; then
-          release_num=$((CURRENT_RELEASE + 1))
-        fi
-      done
-    fi
-  fi
-  
-  echo "$release_num"
-}
-
 # Build firmware package first if it exists (so kernels can reference it)
 if [ -f "${OUTPUT_DIR}/raspios-firmware.tar.gz" ]; then
   FIRMWARE_VERSION=$(date +%Y.%m.%d)
@@ -352,7 +304,6 @@ POST_INSTALL_BODY
 APKBUILD_HEADER
     
     # Now append the rest with proper variable substitution
-    # FIXED: Only depend on mkinitfs, recommend firmware at runtime
     cat >> "${PKG_DIR}/APKBUILD" << EOF
 pkgname=raspios-kernel-${variant}
 pkgver=${PKG_VERSION}
