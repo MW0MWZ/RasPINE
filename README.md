@@ -18,7 +18,7 @@
 | 📦 **Modern Package Management** | Alpine's apk package manager with vast repository access |
 | 🌐 **Network Ready** | DHCP on ethernet, WiFi support with wpa_supplicant |
 | 💾 **SD Card Friendly** | /var/log on tmpfs to reduce wear on your SD card |
-| 🔄 **Monthly Builds** | Automated builds on the 1st of each month |
+| 🔄 **Weekly Updates** | Automated builds with latest Raspberry Pi OS kernels |
 
 ## 🚀 Quick Start
 
@@ -26,11 +26,11 @@
 
 <div align="center">
 
-**[📥 Download from raspine.pistar.uk](https://raspine.pistar.uk)**
+**[📥 Download Latest Release](https://github.com/MW0MWZ/RasPINE/releases/latest)**
 
 Alternative downloads:
-[GitHub Releases](https://github.com/MW0MWZ/RasPINE/releases/latest) | 
-[Direct Download](https://raspine.pistar.uk/downloads/RasPINE-latest.img.xz) | 
+[All Releases](https://github.com/MW0MWZ/RasPINE/releases) | 
+[Direct Download](https://github.com/MW0MWZ/RasPINE/releases/latest/download/RasPINE-latest.img.xz) | 
 [SHA256 Checksum](https://raspine.pistar.uk/downloads/RasPINE-latest.img.xz.sha256)
 
 </div>
@@ -49,10 +49,10 @@ sudo dd if=RasPINE-YYYY-MM-DD.img of=/dev/sdX bs=4M status=progress conv=fsync
 
 Insert the SD card and power on your Raspberry Pi. Connect via SSH or console:
 
-- **Username:** `root`
+- **Username:** `raspine`
 - **Password:** `raspberry`
 
-> ⚠️ **Security Note:** Change the root password immediately after first login using `passwd`
+> ⚠️ **Security Note:** Change the password immediately after first login using `passwd`
 
 ## 🥧 Compatibility
 
@@ -83,7 +83,7 @@ network={
 
 Then enable the wireless interface:
 ```bash
-ifup wlan0
+sudo ifup wlan0
 ```
 
 ## 📦 Package Management
@@ -106,11 +106,11 @@ apk del package-name
 
 ### Custom APK Repository
 
-RasPINE includes access to the custom Ham Radio APK repository:
+RasPINE includes the custom RasPINE repository with Raspberry Pi OS kernels and firmware:
 
 ```bash
 # Already configured in the image
-echo "https://apk.pistar.uk/v3.22/community" >> /etc/apk/repositories
+https://raspine.pistar.uk/v3.22/community
 ```
 
 ## 🛠️ System Management
@@ -187,7 +187,7 @@ free -h
 
 ### Getting Help
 
-Check the [Issues](https://github.com/MW0MWZ/RasPINE/issues) page
+Check the [Issues](https://github.com/MW0MWZ/RasPINE/issues) page or create a new issue if you encounter problems.
 
 ## 🤝 Contributing
 
@@ -232,5 +232,6 @@ This project combines components from:
 
 *Maintained by Andy Taylor (MW0MWZ)*
 
-[Website](https://raspine.pistar.uk)
+[Website](https://raspine.pistar.uk) | [Downloads](https://github.com/MW0MWZ/RasPINE/releases)
+
 </div>

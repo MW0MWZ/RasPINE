@@ -597,7 +597,7 @@
             <p style="opacity: 0.9; margin-bottom: 30px;">Get the latest hybrid OS image for your Raspberry Pi</p>
             
             <div class="download-buttons">
-                <a href="/downloads/RasPINE-latest.img.xz" class="download-btn">
+                <a href="/downloads/RasPINE-latest.img.xz.html" class="download-btn">
                     <svg width="20" height="20" fill="currentColor" viewBox="0 0 20 20">
                         <path d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z"/>
                     </svg>
@@ -733,7 +733,7 @@
                 <div class="feature-icon">📦</div>
                 <div class="feature-title">APK Package Manager</div>
                 <div class="feature-desc">
-                    Access to Alpine's vast repository plus custom Ham Radio packages from apk.pistar.uk.
+                    Access to Alpine's vast repository plus custom Raspberry Pi OS kernel packages.
                 </div>
             </div>
             <div class="feature-card">
@@ -823,7 +823,7 @@
                 <div class="step-content">
                     <strong>Boot and login:</strong>
                     <div style="margin-top: 10px;">
-                        <p>Username: <code style="background: var(--code-bg); padding: 2px 6px; border-radius: 3px;">root</code></p>
+                        <p>Username: <code style="background: var(--code-bg); padding: 2px 6px; border-radius: 3px;">raspine</code></p>
                         <p>Password: <code style="background: var(--code-bg); padding: 2px 6px; border-radius: 3px;">raspberry</code></p>
                         <p style="color: var(--warning); margin-top: 10px;">⚠️ Change password immediately: <code style="background: var(--code-bg); padding: 2px 6px; border-radius: 3px;">passwd</code></p>
                     </div>
@@ -864,7 +864,7 @@
                 </tr>
                 <tr>
                     <td>Build Schedule</td>
-                    <td>Monthly automated builds (1st of each month)</td>
+                    <td>Weekly automated builds with latest kernels</td>
                 </tr>
             </table>
         </div>
@@ -873,7 +873,8 @@
             <p>
                 <strong>RasPINE - Raspberry Pi + Alpine Linux Hybrid</strong><br>
                 Maintained by Andy Taylor (MW0MWZ) | 
-                <a href="https://github.com/MW0MWZ/RasPINE" target="_blank">GitHub</a>
+                <a href="https://github.com/MW0MWZ/RasPINE" target="_blank">GitHub</a> | 
+                <a href="https://github.com/MW0MWZ/RasPINE/releases" target="_blank">Downloads</a>
             </p>
             <p style="margin-top: 10px; opacity: 0.7;">
                 Built with ❤️ for the Raspberry Pi and Amateur Radio communities
@@ -888,10 +889,22 @@
             .then(data => {
                 document.getElementById('latest-date').textContent = data.latest || 'Latest';
                 document.getElementById('image-size').textContent = data.size || '~300MB';
+                
+                // Update download link to use the redirect page
+                const downloadBtn = document.querySelector('.download-btn');
+                if (data.latest && downloadBtn) {
+                    downloadBtn.href = `/downloads/RasPINE-${data.latest}.img.xz.html`;
+                }
             })
             .catch(err => {
                 console.error('Failed to load build info:', err);
                 document.getElementById('latest-date').textContent = 'Latest';
+                
+                // Fallback to GitHub releases
+                const downloadBtn = document.querySelector('.download-btn');
+                if (downloadBtn) {
+                    downloadBtn.href = 'https://github.com/MW0MWZ/RasPINE/releases/latest';
+                }
             });
 
         function copyToClipboard(button, text) {
