@@ -772,7 +772,7 @@ jobs:
         retention-days: 90
 
     - name: Create Release
-      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      if: github.ref == 'refs/heads/main'
       uses: softprops/action-gh-release@v2
       with:
         tag_name: v${{ env.BUILD_DATE }}
@@ -815,7 +815,7 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Prepare GitHub Pages content
-      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      if: github.ref == 'refs/heads/main'
       run: |
         mkdir -p gh-pages/{downloads,assets}
         
@@ -844,14 +844,14 @@ jobs:
         EOF
 
     - name: Checkout gh-pages branch
-      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      if: github.ref == 'refs/heads/main'
       uses: actions/checkout@v4
       with:
         ref: gh-pages
         path: gh-pages-branch
 
     - name: Update gh-pages branch
-      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      if: github.ref == 'refs/heads/main'
       run: |
         # Create downloads directory if it doesn't exist
         mkdir -p gh-pages-branch/downloads
@@ -873,7 +873,7 @@ jobs:
         git push
 
     - name: Cleanup old releases
-      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      if: github.ref == 'refs/heads/main'
       uses: dev-drprasad/delete-older-releases@v0.3.4
       with:
         keep_latest: 6
