@@ -463,13 +463,7 @@ jobs:
         else
             echo "Warning: No boot files found in /boot/firmware"
         fi
-        
-        # Create cmdline.txt if it doesn't exist
-        if [ ! -f /mnt/boot/cmdline.txt ]; then
-            echo "Creating cmdline.txt..."
-            echo "console=tty1 root=/dev/mmcblk0p2 rootfstype=ext4 fsck.repair=yes rootwait" | sudo tee /mnt/boot/cmdline.txt
-        fi
-        
+               
         echo "✓ Boot partition configured"
 
     - name: Create boot configuration system

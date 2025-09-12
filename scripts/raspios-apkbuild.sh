@@ -92,23 +92,15 @@ if [ -f "${OUTPUT_DIR}/raspios-firmware.tar.gz" ]; then
   
   # Check if we have config files to include
   CONFIG_FILES=""
-  if [ -f "packages/community/raspios-firmware/config.txt" ] || [ -f "packages/raspios-firmware/config.txt" ]; then
+  if [ -f "packages/raspios-firmware/config.txt" ]; then
     echo "  Including config.txt"
-    if [ -f "packages/community/raspios-firmware/config.txt" ]; then
-      cp "packages/community/raspios-firmware/config.txt" "$PKG_DIR/"
-    elif [ -f "packages/raspios-firmware/config.txt" ]; then
-      cp "packages/raspios-firmware/config.txt" "$PKG_DIR/"
-    fi
+    cp "packages/raspios-firmware/config.txt" "$PKG_DIR/"
     CONFIG_FILES="${CONFIG_FILES} config.txt"
   fi
   
-  if [ -f "packages/community/raspios-firmware/cmdline.txt" ] || [ -f "packages/raspios-firmware/cmdline.txt" ]; then
+  if [ -f "packages/raspios-firmware/cmdline.txt" ]; then
     echo "  Including cmdline.txt"
-    if [ -f "packages/community/raspios-firmware/cmdline.txt" ]; then
-      cp "packages/community/raspios-firmware/cmdline.txt" "$PKG_DIR/"
-    elif [ -f "packages/raspios-firmware/cmdline.txt" ]; then
-      cp "packages/raspios-firmware/cmdline.txt" "$PKG_DIR/"
-    fi
+    cp "packages/raspios-firmware/cmdline.txt" "$PKG_DIR/"
     CONFIG_FILES="${CONFIG_FILES} cmdline.txt"
   fi
   
