@@ -1,0 +1,3 @@
+*.img.xz
+!*.img.xz.html
+!*.img.xz.sha256

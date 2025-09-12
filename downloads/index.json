@@ -1,0 +1,11 @@
+{
+  "latest": "2025-09-12",
+  "filename": "RasPINE-2025-09-12.img.xz",
+  "download_url": "https://github.com/MW0MWZ/RasPINE/releases/download/v2025-09-12/RasPINE-2025-09-12.img.xz",
+  "info_url": "/downloads/RasPINE-2025-09-12.info.txt",
+  "checksum_url": "/downloads/RasPINE-2025-09-12.img.xz.sha256",
+  "size": "248M",
+  "sha256": "556a091090f80053673b862edf1160ea971aa412368d521252c14d8e5c71e9c4",
+  "alpine_version": "3.22",
+  "arch": "armhf"
+}
