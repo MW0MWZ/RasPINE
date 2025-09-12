@@ -1,7 +1,8 @@
 # Maintainer: Andy Taylor <andy@mw0mwz.co.uk>
+# Auto-updated by GitHub Actions
 pkgname=raspios-firmware
-pkgver=2024.01.01  # This will be replaced by the build script
-pkgrel=0            # This will be replaced by the build script
+pkgver=2025.09.12
+pkgrel=0
 pkgdesc="Raspberry Pi firmware and boot configuration"
 url="https://www.raspberrypi.org/"
 arch="armhf aarch64"
