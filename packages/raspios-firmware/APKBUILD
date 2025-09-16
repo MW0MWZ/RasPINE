@@ -1,0 +1,36 @@
+# Maintainer: Andy Taylor <andy@mw0mwz.co.uk>
+# Auto-updated by GitHub Actions
+pkgname=raspios-firmware
+pkgver=2025.01.01
+pkgrel=0
+pkgdesc="Raspberry Pi firmware and boot configuration"
+url="https://www.raspberrypi.org/"
+arch="armhf aarch64"
+license="custom"
+depends=""
+makedepends=""
+subpackages=""
+source="
+    config.txt
+    cmdline.txt
+"
+options="!check !strip !tracedeps !fhs"
+
+package() {
+    # Install config files to /boot/firmware
+    install -Dm644 "$srcdir/config.txt" "$pkgdir/boot/firmware/config.txt"
+    install -Dm644 "$srcdir/cmdline.txt" "$pkgdir/boot/firmware/cmdline.txt"
+    
+    # Create /boot directory for symlinks
+    mkdir -p "$pkgdir/boot"
+    
+    # Create symlinks in /boot pointing to /boot/firmware
+    cd "$pkgdir/boot"
+    ln -s firmware/config.txt config.txt
+    ln -s firmware/cmdline.txt cmdline.txt
+}
+
+sha512sums="
+SKIP
+SKIP
+"
