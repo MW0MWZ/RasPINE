@@ -1,0 +1,94 @@
+# RasPINE /boot/firmware/config.txt
+# For more options and information see
+# http://rptl.io/configtxt
+# Some settings may impact device functionality. See link above for details
+# Additional overlays and parameters are documented
+# /boot/firmware/overlays/README
+
+# Automatically load overlays for detected cameras
+camera_auto_detect=0
+
+# Automatically load overlays for detected DSI displays
+display_auto_detect=1
+
+# Automatically load initramfs files, if found
+auto_initramfs=1
+
+# Don't have the firmware create an initial video= setting in cmdline.txt.
+# Use the kernel's default instead.
+disable_fw_kms_setup=1
+
+# Disable compensation for displays with overscan
+disable_overscan=1
+
+# Model Specifics
+[pi0]
+kernel=kernel.img
+gpu_mem=16
+dtoverlay=vc4-fkms-v3d,miniuart-bt
+max_framebuffers=1
+
+[pi1]
+kernel=kernel.img
+gpu_mem=16
+dtoverlay=vc4-fkms-v3d
+max_framebuffers=1
+
+[pi2]
+kernel=kernel.img
+gpu_mem=16
+dtoverlay=vc4-fkms-v3d
+max_framebuffers=1
+
+[pi3]
+kernel=kernel8.img
+gpu_mem=64
+dtoverlay=vc4-kms-v3d,miniuart-bt
+max_framebuffers=1
+
+[pi3+]
+kernel=kernel8.img
+gpu_mem=64
+dtoverlay=vc4-kms-v3d,miniuart-bt
+max_framebuffers=1
+
+[pi02]
+kernel=kernel8.img
+arm_freq=800
+gpu_freq=100
+gpu_mem=64
+dtoverlay=vc4-kms-v3d,miniuart-bt
+max_framebuffers=1
+
+[pi4]
+kernel=kernel8.img
+gpu_mem=64
+dtoverlay=vc4-kms-v3d,miniuart-bt
+max_framebuffers=2
+
+[cm4]
+kernel=kernel8.img
+otg_mode=1
+gpu_mem=64
+dtoverlay=vc4-kms-v3d
+max_framebuffers=2
+
+[pi5]
+kernel=kernel8.img
+gpu_mem=64
+dtoverlay=vc4-kms-v3d,miniuart-bt
+max_framebuffers=2
+
+[cm5]
+kernel=kernel8.img
+dtoverlay=dwc2,dr_mode=host
+gpu_mem=64
+dtoverlay=vc4-kms-v3d
+max_framebuffers=2
+
+[all]
+temp_limit=75
+dtparam=uart1=on
+dtparam=uart0=on
+dtparam=spi=on
+dtparam=i2c_arm=on

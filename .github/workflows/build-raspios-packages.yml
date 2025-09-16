@@ -1,0 +1,571 @@
+name: Build RasPiOS Kernel DEB as APKs
+
+on:
+  workflow_call:
+    inputs:
+      raspios_dist:
+        description: 'Raspberry Pi OS distribution'
+        required: false
+        default: 'bookworm'
+        type: string
+      alpine_version:
+        description: 'Alpine version to build for'
+        required: false
+        default: 'all'
+        type: string
+      package_types:
+        description: 'Which packages to fetch'
+        required: false
+        default: 'all'
+        type: string
+  workflow_dispatch:
+    inputs:
+      raspios_dist:
+        description: 'Raspberry Pi OS distribution'
+        required: true
+        default: 'bookworm'
+        type: choice
+        options:
+          - bookworm
+          - bullseye
+      alpine_version:
+        description: 'Alpine version to build for'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - 'all'
+          - '3.22'
+          - '3.21'
+      package_types:
+        description: 'Which packages to fetch'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - kernel-only
+          - firmware-only
+
+jobs:
+  prepare:
+    name: Prepare Build Matrix
+    runs-on: ubuntu-latest
+    outputs:
+      alpine_versions: ${{ steps.versions.outputs.versions }}
+    steps:
+      - name: Determine Alpine versions to build
+        id: versions
+        run: |
+          if [ "${{ inputs.alpine_version }}" = "all" ]; then
+            echo 'versions=["3.22","3.21"]' >> $GITHUB_OUTPUT
+          else
+            echo 'versions=["${{ inputs.alpine_version }}"]' >> $GITHUB_OUTPUT
+          fi
+
+  fetch-and-convert:
+    name: Fetch RasPiOS ${{ matrix.arch }} for Alpine ${{ matrix.alpine_version }}
+    needs: prepare
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [armhf, aarch64]
+        alpine_version: ${{ fromJson(needs.prepare.outputs.alpine_versions) }}
+        include:
+          - arch: armhf
+            platform: linux/arm/v6
+            variants: "v6 v7 v7l v8"
+          - arch: aarch64
+            platform: linux/arm64
+            variants: "v8"
+    
+    outputs:
+      kernel_version: ${{ steps.fetch.outputs.kernel_version }}
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up QEMU for multi-arch builds
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: all
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Fetch Raspberry Pi OS packages
+        id: fetch
+        env:
+          RASPIOS_DIST: ${{ inputs.raspios_dist }}
+          ARCH: ${{ matrix.arch }}
+          VARIANTS: ${{ matrix.variants }}
+          PACKAGE_TYPES: ${{ inputs.package_types }}
+        run: |
+          chmod +x scripts/raspios-fetch.sh
+          ./scripts/raspios-fetch.sh
+
+      - name: Extract and organize packages
+        env:
+          ARCH: ${{ matrix.arch }}
+          VARIANTS: ${{ matrix.variants }}
+          KERNEL_VERSION: ${{ steps.fetch.outputs.kernel_version }}
+        run: |
+          chmod +x scripts/raspios-extract.sh
+          ./scripts/raspios-extract.sh
+
+      - name: Create APKBUILDs
+        env:
+          ARCH: ${{ matrix.arch }}
+          VARIANTS: ${{ matrix.variants }}
+          KERNEL_VERSION: ${{ steps.fetch.outputs.kernel_version }}
+          ALPINE_VERSION: ${{ matrix.alpine_version }}
+        run: |
+          chmod +x scripts/raspios-apkbuild.sh
+          ./scripts/raspios-apkbuild.sh
+
+      - name: Build APK packages
+        env:
+          APK_PRIVATE_KEY: ${{ secrets.APK_PRIVATE_KEY }}
+          ARCH: ${{ matrix.arch }}
+          PLATFORM: ${{ matrix.platform }}
+          ALPINE_VERSION: ${{ matrix.alpine_version }}
+        run: |
+          chmod +x scripts/raspios-build-apk.sh
+          ./scripts/raspios-build-apk.sh
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: raspios-packages-alpine${{ matrix.alpine_version }}-${{ matrix.arch }}
+          path: repo/
+          retention-days: 7
+
+  deploy:
+    name: Deploy Packages to GitHub Pages
+    needs: [prepare, fetch-and-convert]
+    runs-on: ubuntu-latest
+    if: |
+      always() && 
+      needs.fetch-and-convert.result == 'success' &&
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    
+    permissions:
+      contents: write
+      pages: write
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Git
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: Clone or create gh-pages branch
+        run: |
+          echo "::group::Setting up gh-pages branch"
+          
+          if git ls-remote --heads origin gh-pages | grep -q gh-pages; then
+            echo "Cloning existing gh-pages branch..."
+            git clone --branch gh-pages --depth 1 \
+              https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git \
+              deploy
+            
+            cd deploy
+            
+            # Diagnose what's taking up space
+            echo ""
+            echo "=== REPOSITORY SIZE ANALYSIS ==="
+            echo "Total size: $(du -sh . | cut -f1)"
+            echo ""
+            echo "Top level directories:"
+            du -sh * 2>/dev/null | sort -rh || true
+            echo ""
+            echo "All directories over 10MB:"
+            find . -type d -exec du -sm {} \; 2>/dev/null | awk '$1 >= 10' | sort -rn | head -20
+            echo ""
+            echo "Largest files:"
+            find . -type f -exec du -h {} \; 2>/dev/null | sort -rh | head -20
+            echo ""
+            echo "File count by type:"
+            echo "  APK files: $(find . -name '*.apk' | wc -l)"
+            echo "  APKINDEX files: $(find . -name 'APKINDEX.tar.gz' | wc -l)"
+            echo "  Other files: $(find . -type f ! -name '*.apk' ! -name 'APKINDEX.tar.gz' | wc -l)"
+            echo ""
+            
+            # Check for .git directory
+            if [ -d .git ]; then
+              GIT_SIZE=$(du -sh .git | cut -f1)
+              echo "WARNING: .git directory exists and is ${GIT_SIZE}!"
+              echo "Removing .git directory..."
+              rm -rf .git
+              git init
+              git checkout -b gh-pages
+            fi
+            
+            # Remove any backup or temp files
+            echo "Cleaning up unnecessary files..."
+            find . -name '*.bak' -o -name '*.tmp' -o -name '*.old' -o -name '*~' | xargs -r rm -f
+            
+            # Remove any duplicate or old APKINDEX files
+            find . -name 'APKINDEX.unsigned.tar.gz' -o -name 'APKINDEX.*.tar.gz' | xargs -r rm -f
+            
+            cd ..
+          else
+            echo "Creating new gh-pages branch..."
+            mkdir deploy
+            cd deploy
+            git init
+            git checkout -b gh-pages
+            cd ..
+          fi
+          
+          echo "::endgroup::"
+
+      - name: Aggressive cleanup of existing packages
+        run: |
+          echo "::group::Cleaning existing packages"
+          
+          cd deploy
+          
+          # Remove ALL old packages, keep only ONE of each type
+          for dir in v*/community/*; do
+            [ -d "$dir" ] || continue
+            
+            echo "Cleaning $dir..."
+            (
+              cd "$dir"
+              
+              # For each package type, keep ONLY the newest by timestamp
+              for prefix in raspios-kernel-v6 raspios-kernel-v7 raspios-kernel-v7l raspios-kernel-v8 raspios-firmware raspios-kernel-headers-common raspios-bootloader; do
+                NEWEST=$(ls -t ${prefix}-*.apk 2>/dev/null | head -1)
+                
+                if [ -n "$NEWEST" ]; then
+                  # Delete everything except the newest
+                  ls ${prefix}-*.apk 2>/dev/null | grep -v "^${NEWEST}$" | while read OLD; do
+                    echo "  Removing: $OLD"
+                    rm -f "$OLD"
+                  done
+                  echo "  Kept: $NEWEST ($(du -h $NEWEST | cut -f1))"
+                fi
+              done
+            )
+          done
+          
+          echo ""
+          echo "Size after cleanup: $(du -sh . | cut -f1)"
+          
+          cd ..
+          
+          echo "::endgroup::"
+
+      - name: Merge new packages
+        run: |
+          echo "::group::Merging new packages"
+          
+          cd deploy
+          
+          # Track kernel version from packages
+          KERNEL_VERSION=""
+          
+          for artifact_dir in ../artifacts/raspios-packages-*; do
+            [ -d "$artifact_dir" ] || continue
+            
+            artifact_name=$(basename $artifact_dir)
+            echo "Processing $artifact_name..."
+            
+            alpine_version=$(echo $artifact_name | sed -n 's/.*alpine\([0-9.]*\)-.*/\1/p')
+            arch=$(echo $artifact_name | sed -n 's/.*-\(armhf\|aarch64\)$/\1/p')
+            
+            [ -z "$alpine_version" ] || [ -z "$arch" ] && continue
+            
+            TARGET_DIR="v${alpine_version}/community/${arch}"
+            mkdir -p "$TARGET_DIR"
+            
+            if [ -d "$artifact_dir/v${alpine_version}/community/${arch}" ]; then
+              cp -f "$artifact_dir/v${alpine_version}/community/${arch}"/*.apk "$TARGET_DIR/" 2>/dev/null || true
+              
+              # Extract kernel version from one of the kernel packages
+              if [ -z "$KERNEL_VERSION" ]; then
+                for kernel_pkg in "$TARGET_DIR"/raspios-kernel-v*.apk; do
+                  if [ -f "$kernel_pkg" ]; then
+                    # Extract version from filename: raspios-kernel-v7-6.6.51-r0.apk
+                    KERNEL_VERSION=$(basename "$kernel_pkg" | sed -n 's/raspios-kernel-v[0-9]*-\([0-9.]*\)-r[0-9]*.apk/\1/p')
+                    if [ -n "$KERNEL_VERSION" ]; then
+                      echo "Detected kernel version: $KERNEL_VERSION"
+                      break
+                    fi
+                  fi
+                done
+              fi
+            fi
+          done
+          
+          # Store kernel version for later use
+          if [ -n "$KERNEL_VERSION" ]; then
+            echo "$KERNEL_VERSION" > /tmp/kernel_version.txt
+          fi
+          
+          # Copy v8 packages from aarch64 to armhf
+          for ver in 3.22 3.21; do
+            if [ -d "v${ver}/community/aarch64" ] && [ -d "v${ver}/community/armhf" ]; then
+              cp -f "v${ver}/community/aarch64"/raspios-kernel-v8*.apk "v${ver}/community/armhf/" 2>/dev/null || true
+            fi
+          done
+          
+          cd ..
+          
+          echo "::endgroup::"
+
+      - name: Final cleanup - keep only newest packages
+        run: |
+          echo "::group::Final cleanup"
+          
+          cd deploy
+          
+          # Final aggressive cleanup
+          for dir in v*/community/*; do
+            [ -d "$dir" ] || continue
+            
+            echo "Final cleanup in $dir..."
+            (
+              cd "$dir"
+              
+              for prefix in raspios-kernel-v6 raspios-kernel-v7 raspios-kernel-v7l raspios-kernel-v8 raspios-firmware raspios-kernel-headers-common raspios-bootloader; do
+                NEWEST=$(ls -t ${prefix}-*.apk 2>/dev/null | head -1)
+                
+                if [ -n "$NEWEST" ]; then
+                  ls ${prefix}-*.apk 2>/dev/null | grep -v "^${NEWEST}$" | xargs -r rm -f
+                  echo "  Kept only: $NEWEST"
+                fi
+              done
+            )
+          done
+          
+          # Final size analysis
+          echo ""
+          echo "=== FINAL SIZE ANALYSIS ==="
+          echo "Package directories:"
+          for dir in v*/community/*; do
+            if [ -d "$dir" ]; then
+              COUNT=$(ls "$dir"/*.apk 2>/dev/null | wc -l || echo 0)
+              SIZE=$(du -sh "$dir" | cut -f1)
+              echo "  $dir: $COUNT packages, $SIZE"
+            fi
+          done
+          
+          echo ""
+          echo "All directories:"
+          du -sh * 2>/dev/null | sort -rh
+          
+          echo ""
+          TOTAL_SIZE_MB=$(du -sm . | cut -f1)
+          echo "ACTUAL TOTAL SIZE: ${TOTAL_SIZE_MB}MB"
+          
+          # If still too big, find out why
+          if [ $TOTAL_SIZE_MB -gt 950 ]; then
+            echo ""
+            echo "ERROR: Repository is ${TOTAL_SIZE_MB}MB - finding culprits..."
+            echo ""
+            echo "All files over 10MB:"
+            find . -type f -size +10M -exec du -h {} \; | sort -rh
+            echo ""
+            echo "Directory tree:"
+            du -h --max-depth=3 . | sort -rh | head -30
+            
+            # Last resort - delete everything except current packages
+            echo ""
+            echo "NUCLEAR OPTION: Keeping only APK files, removing everything else..."
+            find . -type f ! -name '*.apk' ! -name '.nojekyll' ! -name 'CNAME' ! -name 'index.html' ! -name 'raspine.rsa.pub' ! -name 'packages.json' -delete
+            
+            FINAL_SIZE_MB=$(du -sm . | cut -f1)
+            echo "Size after nuclear cleanup: ${FINAL_SIZE_MB}MB"
+            
+            if [ $FINAL_SIZE_MB -gt 950 ]; then
+              echo "Still too large! This means the APK files alone are >950MB"
+              echo "Package files:"
+              find . -name '*.apk' -exec du -h {} \; | sort -rh
+              exit 1
+            fi
+          fi
+          
+          cd ..
+          
+          echo "::endgroup::"
+
+      - name: Generate APKINDEX
+        env:
+          APK_PRIVATE_KEY: ${{ secrets.APK_PRIVATE_KEY }}
+        run: |
+          echo "::group::Generating APKINDEX"
+          
+          [ -z "$APK_PRIVATE_KEY" ] && echo "ERROR: APK_PRIVATE_KEY not set!" && exit 1
+          
+          cd deploy
+          
+          mkdir -p keys
+          echo "$APK_PRIVATE_KEY" > keys/raspine.rsa
+          cp ../keys/raspine.rsa.pub keys/raspine.rsa.pub
+          chmod 600 keys/raspine.rsa
+          chmod 644 keys/raspine.rsa.pub
+          
+          for ver in 3.22 3.21; do
+            for arch in armhf aarch64; do
+              REPO="v${ver}/community/${arch}"
+              [ ! -d "$REPO" ] && continue
+              
+              PKG_COUNT=$(ls "$REPO"/*.apk 2>/dev/null | wc -l || echo 0)
+              [ "$PKG_COUNT" -eq 0 ] && continue
+              
+              echo "Generating APKINDEX for $REPO ($PKG_COUNT packages)..."
+              
+              # Sign unsigned packages
+              for apk in "$REPO"/*.apk; do
+                [ -f "$apk" ] || continue
+                
+                if ! tar -tzf "$apk" 2>/dev/null | grep -q "^\.SIGN\.RSA\."; then
+                  echo "  Signing $(basename $apk)..."
+                  docker run --rm \
+                    -v "$(pwd)/$REPO:/repo" \
+                    -v "$(pwd)/keys:/keys:ro" \
+                    alpine:${ver} \
+                    sh -c "apk add --no-cache alpine-sdk && cd /repo && abuild-sign -k /keys/raspine.rsa $(basename $apk)"
+                fi
+              done
+              
+              # Generate APKINDEX
+              docker run --rm \
+                -v "$(pwd)/$REPO:/repo" \
+                -v "$(pwd)/keys:/keys:ro" \
+                alpine:${ver} \
+                sh -c "
+                  apk add --no-cache alpine-sdk && \
+                  cp /keys/raspine.rsa.pub /etc/apk/keys/ && \
+                  cd /repo && \
+                  rm -f APKINDEX.tar.gz APKINDEX.unsigned.tar.gz && \
+                  apk index -o APKINDEX.unsigned.tar.gz *.apk && \
+                  abuild-sign -k /keys/raspine.rsa APKINDEX.unsigned.tar.gz && \
+                  mv APKINDEX.unsigned.tar.gz APKINDEX.tar.gz
+                "
+            done
+          done
+          
+          rm -rf keys
+          cd ..
+          
+          echo "::endgroup::"
+
+      - name: Add metadata files
+        run: |
+          cd deploy
+          
+          touch .nojekyll
+          [ -f ../index.html ] && cp ../index.html .
+          [ -f ../keys/raspine.rsa.pub ] && cp ../keys/raspine.rsa.pub .
+          [ -f ../CNAME ] && cp ../CNAME .
+          
+          # Get kernel version if we detected it
+          KERNEL_VERSION=""
+          if [ -f /tmp/kernel_version.txt ]; then
+            KERNEL_VERSION=$(cat /tmp/kernel_version.txt)
+          fi
+          
+          # If we still don't have it, try to get it from the actual packages
+          if [ -z "$KERNEL_VERSION" ]; then
+            for kernel_pkg in v*/community/*/raspios-kernel-v*.apk; do
+              if [ -f "$kernel_pkg" ]; then
+                KERNEL_VERSION=$(basename "$kernel_pkg" | sed -n 's/raspios-kernel-v[0-9]*-\([0-9.]*\)-r[0-9]*.apk/\1/p')
+                [ -n "$KERNEL_VERSION" ] && break
+              fi
+            done
+          fi
+          
+          # Get the full kernel version from the fetch-and-convert job output
+          FULL_KERNEL_VERSION="${{ needs.fetch-and-convert.outputs.kernel_version }}"
+          
+          # If we have the full version, use it without the variant suffix
+          if [ -n "$FULL_KERNEL_VERSION" ]; then
+            # Remove any -v6, -v7, -v7l, -v8 suffix
+            KERNEL_VERSION_DISPLAY=$(echo "$FULL_KERNEL_VERSION" | sed 's/-v[0-9][l]*$//')
+          elif [ -n "$KERNEL_VERSION" ]; then
+            # Use what we extracted from packages
+            KERNEL_VERSION_DISPLAY="${KERNEL_VERSION}+rpt-rpi"
+          else
+            KERNEL_VERSION_DISPLAY="unknown"
+          fi
+          
+          cat > packages.json << EOF
+          {
+            "repository": "RasPINE APK Repository",
+            "updated": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "alpine_versions": ["3.22", "3.21"],
+            "architectures": ["armhf", "aarch64"],
+            "kernel_version": "${KERNEL_VERSION_DISPLAY}"
+          }
+          EOF
+          
+          cd ..
+
+      - name: Deploy to GitHub Pages
+        run: |
+          echo "::group::Deploying to GitHub Pages"
+          
+          cd deploy
+          
+          # Final check
+          TOTAL_SIZE_MB=$(du -sm . | cut -f1)
+          TOTAL_PACKAGES=$(find . -name "*.apk" | wc -l)
+          
+          echo "Deploying: ${TOTAL_SIZE_MB}MB with ${TOTAL_PACKAGES} packages"
+          
+          git add -A
+          
+          if git diff --staged --quiet; then
+            echo "No changes to deploy"
+            exit 0
+          fi
+          
+          git commit -m "Deploy packages - $(date +'%Y-%m-%d %H:%M:%S UTC')
+          
+          Size: ${TOTAL_SIZE_MB}MB
+          Packages: ${TOTAL_PACKAGES}"
+          
+          git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git gh-pages --force
+          
+          cd ..
+          
+          echo "::endgroup::"
+
+      - name: Purge Cloudflare cache
+        if: success()
+        env:
+          CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          [ -z "$CLOUDFLARE_ZONE_ID" ] || [ -z "$CLOUDFLARE_API_TOKEN" ] && exit 0
+          
+          # Only purge URLs under raspine.pistar.uk
+          curl -X POST \
+            "https://api.cloudflare.com/client/v4/zones/${CLOUDFLARE_ZONE_ID}/purge_cache" \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data '{
+              "prefixes": [
+                "https://raspine.pistar.uk/",
+                "http://raspine.pistar.uk/"
+              ]
+            }' \
+            -s -o /dev/null
+          
+          echo "✅ Cloudflare cache purged for raspine.pistar.uk"

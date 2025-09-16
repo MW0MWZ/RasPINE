@@ -1,0 +1,895 @@
+name: Build RasPINE Image
+
+on:
+  workflow_call:
+  workflow_dispatch:
+    inputs:
+      debug_enabled:
+        type: boolean
+        description: 'Enable debug mode'
+        required: false
+        default: false
+
+env:
+  ALPINE_VERSION: "3.22"
+  ALPINE_ARCH: "armhf"
+  IMAGE_SIZE: "2G"
+  BOOT_SIZE: "256M"
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    outputs:
+      build_date: ${{ steps.set-date.outputs.date }}
+      image_name: ${{ steps.set-date.outputs.image_name }}
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set build date
+      id: set-date
+      run: |
+        BUILD_DATE=$(date +'%Y-%m-%d')
+        echo "date=$BUILD_DATE" >> $GITHUB_OUTPUT
+        echo "image_name=RasPINE-$BUILD_DATE.img.xz" >> $GITHUB_OUTPUT
+        echo "BUILD_DATE=$BUILD_DATE" >> $GITHUB_ENV
+
+    - name: Install build dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          qemu-user-static \
+          binfmt-support \
+          parted \
+          kpartx \
+          dosfstools \
+          e2fsprogs \
+          wget \
+          curl \
+          xz-utils \
+          fdisk \
+          util-linux \
+          rsync \
+          git \
+          jq \
+          coreutils
+
+    - name: Set up QEMU for ARM emulation
+      run: |
+        sudo update-binfmts --display
+        sudo update-binfmts --enable qemu-arm
+        sudo update-binfmts --enable qemu-aarch64
+
+    - name: Create empty image
+      run: |
+        echo "Creating ${IMAGE_SIZE} image..."
+        truncate -s ${IMAGE_SIZE} raspine.img
+        
+        # Create partitions
+        parted -s raspine.img \
+          mklabel msdos \
+          mkpart primary fat32 1MiB ${BOOT_SIZE} \
+          mkpart primary ext4 ${BOOT_SIZE} 100% \
+          set 1 boot on
+
+    - name: Set up loop device and format partitions
+      run: |
+        # Set up loop device with partitions
+        sudo losetup -P /dev/loop0 raspine.img
+        
+        # Format partitions
+        echo "Formatting boot partition..."
+        sudo mkfs.vfat -F 32 -n BOOT /dev/loop0p1
+        
+        echo "Formatting root partition..."
+        sudo mkfs.ext4 -L rootfs /dev/loop0p2
+        
+        # Mount partitions
+        sudo mkdir -p /mnt/{boot,root}
+        sudo mount /dev/loop0p1 /mnt/boot
+        sudo mount /dev/loop0p2 /mnt/root
+
+    - name: Install Alpine Linux rootfs
+      run: |
+        ALPINE_MIRROR="https://dl-cdn.alpinelinux.org/alpine/v${ALPINE_VERSION}"
+        
+        echo "Searching for Alpine rootfs files..."
+        echo "Looking in: ${ALPINE_MIRROR}/releases/${ALPINE_ARCH}/"
+        
+        # Get the actual filename - simplified pattern
+        ALPINE_FILE=$(curl -s "${ALPINE_MIRROR}/releases/${ALPINE_ARCH}/" | \
+                      grep -o 'alpine-minirootfs[^"<]*\.tar\.gz' | \
+                      grep "${ALPINE_VERSION}" | \
+                      head -1)
+        
+        # If that didn't work, try another approach
+        if [ -z "$ALPINE_FILE" ]; then
+          echo "First attempt failed, trying alternate method..."
+          ALPINE_FILE=$(curl -s "${ALPINE_MIRROR}/releases/${ALPINE_ARCH}/" | \
+                        sed -n 's/.*href="\(alpine-minirootfs-[^"]*\.tar\.gz\).*/\1/p' | \
+                        grep "${ALPINE_VERSION}" | \
+                        head -1)
+        fi
+        
+        # If still nothing, build the filename from known pattern
+        if [ -z "$ALPINE_FILE" ]; then
+          echo "Dynamic detection failed, building filename..."
+          # Get latest patch version for this minor version
+          PATCH_VERSION=$(curl -s "${ALPINE_MIRROR}/releases/${ALPINE_ARCH}/" | \
+                          grep -o "alpine-minirootfs-${ALPINE_VERSION}\.[0-9]*-${ALPINE_ARCH}\.tar\.gz" | \
+                          sed "s/.*-${ALPINE_VERSION}\.\([0-9]*\)-.*/\1/" | \
+                          sort -n | tail -1)
+          if [ -n "$PATCH_VERSION" ]; then
+            ALPINE_FILE="alpine-minirootfs-${ALPINE_VERSION}.${PATCH_VERSION}-${ALPINE_ARCH}.tar.gz"
+          else
+            ALPINE_FILE="alpine-minirootfs-${ALPINE_VERSION}.0-${ALPINE_ARCH}.tar.gz"
+          fi
+        fi
+        
+        echo "Found Alpine rootfs: ${ALPINE_FILE}"
+        FULL_URL="${ALPINE_MIRROR}/releases/${ALPINE_ARCH}/${ALPINE_FILE}"
+        echo "Downloading from: ${FULL_URL}"
+        
+        # Download with curl
+        curl -L -f -o "${ALPINE_FILE}" "${FULL_URL}" || {
+          echo "Download failed! Let's check if the file exists:"
+          curl -I "${FULL_URL}"
+          exit 1
+        }
+        
+        # Verify download
+        if [ ! -f "${ALPINE_FILE}" ]; then
+          echo "ERROR: Download failed - file not found"
+          exit 1
+        fi
+        
+        FILE_SIZE=$(du -h "${ALPINE_FILE}" | cut -f1)
+        echo "Downloaded successfully: ${ALPINE_FILE} (${FILE_SIZE})"
+        
+        # Extract Alpine rootfs
+        echo "Extracting Alpine rootfs to /mnt/root/..."
+        sudo tar -xzf "${ALPINE_FILE}" -C /mnt/root/
+        
+        # Copy QEMU static binary for chroot
+        echo "Setting up QEMU for ARM emulation..."
+        sudo cp /usr/bin/qemu-arm-static /mnt/root/usr/bin/
+        
+        echo "✓ Alpine rootfs installation complete"
+
+    - name: Configure Alpine base system with user support and RasPINE repo
+      run: |
+        # Copy DNS configuration into chroot
+        echo "Setting up DNS for chroot..."
+        sudo cp /etc/resolv.conf /mnt/root/etc/resolv.conf
+        
+        # Pass environment variables to the chroot
+        sudo tee /mnt/root/etc/alpine-build-env << ENV_EOF
+        export ALPINE_VERSION="${ALPINE_VERSION}"
+        export ALPINE_ARCH="${ALPINE_ARCH}"
+        ENV_EOF
+        
+        # Also mount necessary filesystems for chroot
+        sudo mount -t proc none /mnt/root/proc
+        sudo mount -t sysfs none /mnt/root/sys
+        sudo mount -o bind /dev /mnt/root/dev
+        sudo mount -o bind /dev/pts /mnt/root/dev/pts || true
+        
+        cat << 'EOF' | sudo tee /mnt/root/setup-alpine.sh
+        #!/bin/sh
+        set -e
+        
+        # Source the environment variables
+        . /etc/alpine-build-env
+        
+        # Ensure DNS is working
+        echo "Testing DNS resolution..."
+        nslookup dl-cdn.alpinelinux.org || {
+          echo "DNS not working, using Google DNS..."
+          echo "nameserver 8.8.8.8" > /etc/resolv.conf
+          echo "nameserver 8.8.4.4" >> /etc/resolv.conf
+        }
+        
+        # Download and install RasPINE repository public key
+        echo "Adding RasPINE repository key..."
+        wget -O /etc/apk/keys/raspine.rsa.pub https://raspine.pistar.uk/raspine.rsa.pub
+        
+        # Set up Alpine repositories including RasPINE repo
+        echo "Setting up Alpine ${ALPINE_VERSION} repositories with RasPINE..."
+        cat > /etc/apk/repositories << REPOS
+        https://dl-cdn.alpinelinux.org/alpine/v${ALPINE_VERSION}/main
+        https://dl-cdn.alpinelinux.org/alpine/v${ALPINE_VERSION}/community
+        https://raspine.pistar.uk/v${ALPINE_VERSION}/community
+        REPOS
+        
+        # Update package index
+        echo "Updating package index..."
+        apk update
+        
+        # Install base packages plus WiFi support, sudo, and dhcpcd
+        echo "Installing packages..."
+        apk add --no-cache \
+          alpine-base \
+          openrc \
+          util-linux \
+          e2fsprogs \
+          dropbear \
+          libc6-compat \
+          wpa_supplicant \
+          wireless-tools \
+          iw \
+          ca-certificates \
+          ca-certificates-bundle \
+          openssl \
+          sudo \
+          tzdata \
+          dhcpcd
+        
+        # Install Raspberry Pi kernels from RasPINE repo
+        # Using --force-overwrite to handle overlay conflicts between packages
+        echo "Installing Raspberry Pi kernels from RasPINE repo..."
+        apk add --no-cache --force-overwrite \
+          raspios-firmware \
+          raspios-kernel-v6 \
+          raspios-kernel-v7 \
+          raspios-kernel-v7l \
+          raspios-kernel-v8
+        
+        # Fix the mkinitfs trigger error by creating the directory/file it expects
+        mkdir -p /boot
+        touch /boot/initramfs 2>/dev/null || true
+        
+        # Update CA certificates to fix SSL/TLS issues
+        echo "Updating CA certificates..."
+        update-ca-certificates
+        
+        # Set up essential services
+        echo "Configuring services..."
+        rc-update add devfs sysinit
+        rc-update add dmesg sysinit
+        rc-update add modules boot
+        rc-update add sysctl boot
+        rc-update add hostname boot
+        rc-update add bootmisc boot
+        rc-update add syslog boot
+        rc-update add dropbear default
+        rc-update add wpa_supplicant boot
+        rc-update add dhcpcd boot
+        
+        # Configure hostname
+        echo "raspine" > /etc/hostname
+        
+        # Configure hosts file
+        cat > /etc/hosts << HOSTS
+        127.0.0.1   localhost localhost.localdomain
+        127.0.1.1   raspine
+        HOSTS
+        
+        # Create raspine user with sudo access
+        echo "Creating raspine user..."
+        adduser -D -s /bin/sh raspine
+        addgroup raspine wheel
+        echo "raspine:raspberry" | chpasswd
+        
+        # Configure sudo for wheel group (passwordless)
+        echo "%wheel ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/wheel
+        
+        # Disable root password login (can still sudo)
+        passwd -l root
+        
+        # Configure SSH - key only by default
+        mkdir -p /etc/conf.d
+        echo 'DROPBEAR_OPTS="-B -s"' > /etc/conf.d/dropbear
+        
+        # Configure wpa_supplicant service to not fail if no config
+        echo 'wpa_supplicant_args="-q"' > /etc/conf.d/wpa_supplicant
+        
+        # Disable predictable network interface names
+        mkdir -p /etc/udev/rules.d
+        ln -s /dev/null /etc/udev/rules.d/80-net-setup-link.rules
+        
+        # Create necessary directories
+        mkdir -p /boot/firmware
+        mkdir -p /var/log
+        mkdir -p /usr/local/bin
+        
+        # Create home directory structure for raspine
+        mkdir -p /home/raspine
+        chown raspine:raspine /home/raspine
+        
+        # Add Broadcom WiFi modules to load at boot
+        echo "Adding WiFi modules to auto-load..."
+        cat >> /etc/modules << MODULES
+        # Broadcom WiFi support for Raspberry Pi
+        brcmfmac
+        brcmutil
+        cfg80211
+        rfkill
+        MODULES
+        
+        # Create modprobe configuration for brcmfmac
+        mkdir -p /etc/modprobe.d
+        cat > /etc/modprobe.d/raspi-wifi.conf << MODCONF
+        # Raspberry Pi WiFi configuration
+        options brcmfmac roamoff=1
+        # Disable power management for better stability
+        options brcmfmac feature_disable=0x82000
+        MODCONF
+        
+        # Set regulatory domain
+        cat > /etc/modprobe.d/cfg80211.conf << REGCONF
+        # Set regulatory domain
+        options cfg80211 ieee80211_regdom=GB
+        REGCONF
+        
+        # Fix rfkill configuration
+        cat > /etc/modprobe.d/rfkill_default.conf << RFKILLCONF
+        # RasPINE rfkill configuration
+        # default_state=1 means radios are UNBLOCKED by default
+        options rfkill default_state=1 master_switch_mode=2
+        RFKILLCONF
+        
+        # Cleanup the initramfs file we created
+        rm -f /boot/initramfs 2>/dev/null || true
+        
+        echo "Alpine ${ALPINE_VERSION} configuration complete!"
+        EOF
+        
+        # Make script executable and run it
+        sudo chmod +x /mnt/root/setup-alpine.sh
+        sudo chroot /mnt/root /setup-alpine.sh
+        
+        # Cleanup
+        sudo rm /mnt/root/setup-alpine.sh
+        sudo rm /mnt/root/etc/alpine-build-env
+        
+        # Unmount the bind mounts
+        sudo umount /mnt/root/dev/pts 2>/dev/null || true
+        sudo umount /mnt/root/dev
+        sudo umount /mnt/root/sys
+        sudo umount /mnt/root/proc
+        
+        echo "✓ Alpine base system configured with RasPINE kernel packages"
+
+    - name: Configure networking
+      run: |
+        # Create dhcpcd configuration
+        sudo tee /mnt/root/etc/dhcpcd.conf << 'EOF'
+        # RasPINE dhcpcd configuration
+        
+        # Inform the DHCP server of our hostname for DDNS
+        hostname
+        
+        # Use the hardware address of the interface for the Client ID
+        clientid
+        
+        # Persist interface configuration when dhcpcd exits
+        persistent
+        
+        # Rapid commit support
+        option rapid_commit
+        
+        # A list of options to request from the DHCP server
+        option domain_name_servers, domain_name, domain_search, host_name
+        option classless_static_routes
+        option interface_mtu
+        
+        # Respect the network MTU
+        option interface_mtu
+        
+        # A ServerID is required by RFC2131
+        require dhcp_server_identifier
+        
+        # Generate SLAAC address using the Hardware Address of the interface
+        slaac hwaddr
+        
+        # OR generate Stable Private IPv6 Addresses based on the DUID
+        #slaac private
+        
+        # Don't attempt to configure if carrier is not present
+        nocarrier
+        
+        # Wait for carrier before forking to background
+        waitip 4
+        
+        # Don't touch wpa_supplicant (we manage it separately)
+        nohook wpa_supplicant
+        EOF
+        
+        # Create dhcpcd hook to sync time when we get an IP
+        sudo mkdir -p /mnt/root/usr/lib/dhcpcd/dhcpcd-hooks
+        sudo tee /mnt/root/usr/lib/dhcpcd/dhcpcd-hooks/30-time-sync << 'EOF'
+        #!/bin/sh
+        # Sync time when network comes up
+        
+        case "$reason" in
+        BOUND|INFORM|REBIND|REBOOT)
+            # Only sync if time is clearly wrong (before year 2024)
+            if [ $(date +%Y) -lt 2024 ]; then
+                logger -t dhcpcd "Time appears wrong, syncing..."
+                # Try to sync time using busybox ntpd
+                ntpd -q -n -p pool.ntp.org 2>/dev/null || \
+                ntpd -q -n -p time.google.com 2>/dev/null || \
+                ntpd -q -n -p time.cloudflare.com 2>/dev/null || \
+                logger -t dhcpcd "Time sync failed - set manually with: date -s 'YYYY-MM-DD HH:MM:SS'"
+                
+                if [ $(date +%Y) -ge 2024 ]; then
+                    logger -t dhcpcd "Time sync successful: $(date)"
+                fi
+            fi
+            ;;
+        esac
+        EOF
+        sudo chmod +x /mnt/root/usr/lib/dhcpcd/dhcpcd-hooks/30-time-sync
+        
+        # Network interfaces configuration - minimal, dhcpcd handles DHCP
+        sudo tee /mnt/root/etc/network/interfaces << 'EOF'
+        auto lo
+        iface lo inet loopback
+        
+        # Ethernet - managed by dhcpcd
+        allow-hotplug eth0
+        iface eth0 inet manual
+        
+        # Wireless - managed by dhcpcd after wpa_supplicant connects
+        allow-hotplug wlan0
+        iface wlan0 inet manual
+        EOF
+        
+        # Create wpa_supplicant configuration
+        sudo mkdir -p /mnt/root/etc/wpa_supplicant
+        sudo tee /mnt/root/etc/wpa_supplicant/wpa_supplicant.conf << 'EOF'
+        ctrl_interface=/var/run/wpa_supplicant
+        ctrl_interface_group=0
+        update_config=1
+        country=GB
+        
+        # Networks will be added by raspine-config at boot
+        EOF
+        
+        echo "✓ Networking configured with dhcpcd and time sync"
+
+    - name: Configure boot partition
+      run: |
+        # Create fstab
+        sudo tee /mnt/root/etc/fstab << 'EOF'
+        /dev/mmcblk0p1  /boot/firmware  vfat    defaults,noatime  0  2
+        /dev/mmcblk0p2  /               ext4    defaults,noatime  0  1
+        tmpfs           /var/log        tmpfs   size=64M,nodev,nosuid  0  0
+        EOF
+        
+        # Copy boot files from /boot/firmware to the actual boot partition
+        echo "Copying boot files to boot partition..."
+        if [ -d /mnt/root/boot/firmware ] && [ "$(ls -A /mnt/root/boot/firmware)" ]; then
+            echo "Found boot files in /boot/firmware, copying to boot partition..."
+            sudo cp -a /mnt/root/boot/firmware/* /mnt/boot/
+            
+            # Verify critical files exist
+            if [ ! -f /mnt/boot/cmdline.txt ]; then
+                echo "ERROR: cmdline.txt not found - raspios-firmware package issue!"
+                exit 1
+            fi
+            if [ ! -f /mnt/boot/config.txt ]; then
+                echo "ERROR: config.txt not found - raspios-firmware package issue!"
+                exit 1
+            fi
+            
+            echo "Boot files copied from raspios-firmware package:"
+            echo "  - config.txt: $(head -1 /mnt/boot/config.txt)"
+            echo "  - cmdline.txt: $(cat /mnt/boot/cmdline.txt)"
+        else
+            echo "ERROR: No boot files found in /boot/firmware - check raspios-firmware package!"
+            exit 1
+        fi
+        
+        echo "✓ Boot partition configured with files from raspios-firmware package"
+
+    - name: Create boot configuration system
+      run: |
+        # Create the configuration processor script
+        sudo tee /mnt/root/usr/local/bin/raspine-config << 'EOF'
+        #!/bin/sh
+        # RasPINE Boot Configuration Processor
+        
+        CONFIG_FILE="/boot/firmware/raspine-config.txt"
+        PROCESSED_FLAG="/etc/raspine-configured"
+        LOG_FILE="/var/log/raspine-config.log"
+        
+        log() {
+            echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a $LOG_FILE
+        }
+        
+        # Check if config file exists
+        if [ ! -f "$CONFIG_FILE" ]; then
+            exit 0
+        fi
+        
+        # Check if already processed
+        if [ -f "$PROCESSED_FLAG" ]; then
+            log "Configuration already processed, skipping"
+            exit 0
+        fi
+        
+        log "Processing RasPINE configuration..."
+        
+        # Parse configuration file
+        while IFS='=' read -r key value; do
+            # Skip comments and empty lines
+            case "$key" in
+                "#"*|"") continue ;;
+            esac
+            
+            # Remove leading/trailing whitespace
+            key=$(echo "$key" | tr -d ' ')
+            value=$(echo "$value" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+            
+            case "$key" in
+                # WiFi configuration
+                wifi_ssid*)
+                    priority=$(echo "$key" | sed 's/wifi_ssid_*//')
+                    [ -z "$priority" ] && priority=1
+                    
+                    # Store SSID for processing
+                    eval "WIFI_SSID_${priority}=\"$value\""
+                    log "Found WiFi network: $value (priority $priority)"
+                    ;;
+                    
+                wifi_password*)
+                    priority=$(echo "$key" | sed 's/wifi_password_*//')
+                    [ -z "$priority" ] && priority=1
+                    
+                    # Store password for processing
+                    eval "WIFI_PASS_${priority}=\"$value\""
+                    ;;
+                    
+                wifi_country)
+                    log "Setting WiFi country: $value"
+                    echo "country=$value" >> /etc/wpa_supplicant/wpa_supplicant.conf
+                    ;;
+                    
+                enable_open_networks)
+                    if [ "$value" = "true" ]; then
+                        log "Enabling open network connections"
+                        echo "# Open networks enabled" >> /etc/wpa_supplicant/wpa_supplicant.conf
+                    fi
+                    ;;
+                    
+                # User configuration
+                user_password)
+                    log "Setting raspine user password"
+                    # Create raspine user if it doesn't exist
+                    if ! id raspine >/dev/null 2>&1; then
+                        adduser -D -s /bin/sh raspine
+                        addgroup raspine wheel
+                    fi
+                    echo "raspine:$value" | chpasswd
+                    ;;
+                    
+                enable_ssh_password)
+                    if [ "$value" = "true" ]; then
+                        log "Enabling SSH password authentication"
+                        # Dropbear: remove -s (disable password) and -g (disable password for root)
+                        sed -i 's/DROPBEAR_OPTS=.*/DROPBEAR_OPTS="-B"/' /etc/conf.d/dropbear
+                    else
+                        log "SSH key-only authentication enabled"
+                        sed -i 's/DROPBEAR_OPTS=.*/DROPBEAR_OPTS="-B -s"/' /etc/conf.d/dropbear
+                    fi
+                    ;;
+                    
+                ssh_key)
+                    log "Adding SSH public key"
+                    # Create raspine user if needed
+                    if ! id raspine >/dev/null 2>&1; then
+                        adduser -D -s /bin/sh raspine
+                        addgroup raspine wheel
+                    fi
+                    
+                    # Add SSH key
+                    mkdir -p /home/raspine/.ssh
+                    echo "$value" >> /home/raspine/.ssh/authorized_keys
+                    chmod 700 /home/raspine/.ssh
+                    chmod 600 /home/raspine/.ssh/authorized_keys
+                    chown -R raspine:raspine /home/raspine/.ssh
+                    ;;
+                    
+                # System configuration
+                hostname)
+                    log "Setting hostname: $value"
+                    echo "$value" > /etc/hostname
+                    hostname "$value"
+                    ;;
+                    
+                timezone)
+                    log "Setting timezone: $value"
+                    # Alpine uses different timezone setup
+                    if [ -f "/usr/share/zoneinfo/$value" ]; then
+                        cp "/usr/share/zoneinfo/$value" /etc/localtime
+                        echo "$value" > /etc/timezone
+                    fi
+                    ;;
+                    
+                locale)
+                    log "Setting locale: $value"
+                    # Note: Alpine has limited locale support
+                    echo "export LANG=$value" >> /etc/profile.d/locale.sh
+                    ;;
+            esac
+        done < "$CONFIG_FILE"
+        
+        # Process WiFi networks (add them in priority order)
+        log "Configuring WiFi networks..."
+        for i in 10 9 8 7 6 5 4 3 2 1; do
+            eval "ssid=\$WIFI_SSID_${i}"
+            eval "pass=\$WIFI_PASS_${i}"
+            
+            if [ -n "$ssid" ] && [ -n "$pass" ]; then
+                log "Adding network: $ssid (priority $i)"
+                wpa_passphrase "$ssid" "$pass" | sed "s/}/\tpriority=$i\n}/" >> /etc/wpa_supplicant/wpa_supplicant.conf
+            fi
+        done
+        
+        # Don't restart services - they haven't started yet!
+        # The services will start after this script completes
+        if [ -n "$WIFI_SSID_1" ]; then
+            log "WiFi networks configured - will connect on service start"
+        fi
+        
+        # Mark as configured
+        date > "$PROCESSED_FLAG"
+        
+        # DELETE the config file for security (it contains passwords!)
+        rm -f "$CONFIG_FILE"
+        log "Configuration complete! Config file securely deleted."
+        
+        # Don't restart SSH here either - let it start normally
+        log "Services will start after configuration completes"
+        
+        EOF
+        sudo chmod +x /mnt/root/usr/local/bin/raspine-config
+        
+        # Create OpenRC service for boot configuration
+        sudo tee /mnt/root/etc/init.d/raspine-config << 'EOF'
+        #!/sbin/openrc-run
+        
+        description="RasPINE Boot Configuration"
+        
+        # Set a short timeout since this is a quick operation
+        rc_timeout=5
+        
+        depend() {
+            need localmount
+            after modules
+            before networking wpa_supplicant
+            provide raspine-config
+        }
+        
+        start() {
+            ebegin "Processing RasPINE configuration"
+            /usr/local/bin/raspine-config
+            eend $?
+        }
+        EOF
+        sudo chmod +x /mnt/root/etc/init.d/raspine-config
+        
+        # Add service to boot
+        sudo ln -s /etc/init.d/raspine-config /mnt/root/etc/runlevels/boot/raspine-config
+        
+        # Create sample configuration file for the boot partition
+        sudo tee /mnt/boot/raspine-config.txt.sample << 'EOF'
+        # RasPINE Boot Configuration
+        # Copy this file to the boot partition as 'raspine-config.txt'
+        # Remove the # from lines you want to use
+        # WARNING: This file will be DELETED after processing for security!
+        
+        # === WIFI CONFIGURATION ===
+        # Primary network (highest priority)
+        #wifi_ssid=YourWorkNetwork
+        #wifi_password=YourWorkPassword
+        
+        # Secondary networks (numbered for priority - higher numbers = higher priority)
+        #wifi_ssid_2=YourHomeNetwork
+        #wifi_password_2=YourHomePassword
+        
+        #wifi_ssid_3=YourMobileHotspot  
+        #wifi_password_3=YourHotspotPassword
+        
+        # Additional networks (add as many as needed)
+        #wifi_ssid_4=CoffeeShopWiFi
+        #wifi_password_4=CoffeeShopPassword
+        
+        # WiFi country code (affects available channels and power limits)
+        wifi_country=GB
+        
+        # Allow connection to open networks (no password) - use with caution!
+        enable_open_networks=false
+        
+        # === USER SECURITY ===
+        # Set password for raspine user (required for SSH password auth)
+        user_password=raspberry
+        
+        # Enable SSH password authentication (default: key-only)
+        enable_ssh_password=true
+        
+        # Add SSH public key for secure access (recommended)
+        #ssh_key=ssh-rsa AAAAB3NzaC1yc2EAAAA... your-email@example.com
+        
+        # === SYSTEM CONFIGURATION ===
+        hostname=raspine
+        timezone=Europe/London
+        locale=en_GB.UTF-8
+        
+        # === SECURITY NOTES ===
+        # • Root account is disabled by default (secure)
+        # • raspine user has passwordless sudo access
+        # • SSH password authentication is disabled unless explicitly enabled
+        # • THIS FILE WILL BE DELETED after processing for security
+        # • WiFi networks are tried in order of priority (higher numbers first)
+        EOF
+        
+        echo "✓ Boot configuration system created"
+
+    - name: Create system information file
+      run: |
+        sudo tee /mnt/root/etc/raspine-release << EOF
+        RasPINE Hybrid System
+        Build Date: ${BUILD_DATE}
+        Alpine Version: ${ALPINE_VERSION}
+        Architecture: ${ALPINE_ARCH}
+        Kernel: Raspberry Pi OS (via APK)
+        Userland: Alpine Linux
+        EOF
+
+    - name: Cleanup and unmount
+      run: |
+        # Remove QEMU static binary
+        sudo rm -f /mnt/root/usr/bin/qemu-arm-static
+        
+        # Sync and unmount
+        sync
+        sudo umount /mnt/boot
+        sudo umount /mnt/root
+        sudo losetup -d /dev/loop0
+
+    - name: Compress image
+      run: |
+        echo "Compressing image..."
+        xz -9 -T0 raspine.img
+        mv raspine.img.xz "RasPINE-${BUILD_DATE}.img.xz"
+        
+        # Generate checksums
+        sha256sum "RasPINE-${BUILD_DATE}.img.xz" > "RasPINE-${BUILD_DATE}.img.xz.sha256"
+        
+        # Create info file
+        cat > "RasPINE-${BUILD_DATE}.info.txt" << EOF
+        RasPINE Hybrid Image
+        ====================
+        Build Date: ${BUILD_DATE}
+        Alpine Version: ${ALPINE_VERSION}
+        Architecture: ${ALPINE_ARCH}
+        Image Size: $(du -h "RasPINE-${BUILD_DATE}.img.xz" | cut -f1)
+        SHA256: $(cut -d' ' -f1 < "RasPINE-${BUILD_DATE}.img.xz.sha256")
+        
+        Default Credentials:
+        Username: raspine
+        Password: raspberry
+        
+        Network: DHCP on eth0
+        SSH: Enabled (Dropbear)
+        
+        Compatible with all Raspberry Pi models.
+        EOF
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: RasPINE-${{ env.BUILD_DATE }}
+        path: |
+          RasPINE-*.img.xz
+          RasPINE-*.img.xz.sha256
+          RasPINE-*.info.txt
+        retention-days: 90
+
+    - name: Create Release
+      # Only create release if called directly (not from master workflow)
+      if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: v${{ env.BUILD_DATE }}
+        name: RasPINE ${{ env.BUILD_DATE }}
+        draft: false
+        prerelease: false
+        files: |
+          RasPINE-*.img.xz
+          RasPINE-*.img.xz.sha256
+          RasPINE-*.info.txt
+        body: |
+          # RasPINE Hybrid Image - ${{ env.BUILD_DATE }}
+          
+          Raspberry Pi OS kernel/firmware with Alpine Linux ${{ env.ALPINE_VERSION }} userland.
+          
+          ## Download
+          [Download RasPINE-${{ env.BUILD_DATE }}.img.xz](https://github.com/${{ github.repository }}/releases/download/v${{ env.BUILD_DATE }}/RasPINE-${{ env.BUILD_DATE }}.img.xz)
+          
+          ## Verification
+          Check the SHA256 checksum before use.
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  update-pages:
+    name: Update GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    # Only update pages if called directly AND build succeeded
+    if: |
+      github.event_name == 'workflow_dispatch' && 
+      github.ref == 'refs/heads/main' && 
+      needs.build.result == 'success'
+    
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Download build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: RasPINE-${{ needs.build.outputs.build_date }}
+        path: build-artifacts/
+
+    - name: Update gh-pages
+      run: |
+        BUILD_DATE="${{ needs.build.outputs.build_date }}"
+        
+        # Clone gh-pages
+        git config --global user.name 'github-actions[bot]'
+        git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+        
+        git clone --branch gh-pages --single-branch \
+          https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git \
+          gh-pages || {
+          # Create if doesn't exist
+          mkdir gh-pages
+          cd gh-pages
+          git init
+          git checkout -b gh-pages
+          cd ..
+        }
+        
+        # Update downloads
+        mkdir -p gh-pages/downloads
+        cp build-artifacts/*.info.txt gh-pages/downloads/
+        cp build-artifacts/*.sha256 gh-pages/downloads/
+        
+        # Create redirect page
+        cat > gh-pages/downloads/RasPINE-${BUILD_DATE}.img.xz.html << EOF
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <title>Downloading RasPINE-${BUILD_DATE}.img.xz</title>
+            <meta http-equiv="refresh" content="0; url=https://github.com/${{ github.repository }}/releases/download/v${BUILD_DATE}/RasPINE-${BUILD_DATE}.img.xz">
+        </head>
+        <body>
+            <p>Redirecting to download...</p>
+        </body>
+        </html>
+        EOF
+        
+        # Update symlinks
+        cd gh-pages/downloads
+        ln -sf "RasPINE-${BUILD_DATE}.img.xz.html" "RasPINE-latest.img.xz.html"
+        ln -sf "RasPINE-${BUILD_DATE}.info.txt" "RasPINE-latest.info.txt"
+        ln -sf "RasPINE-${BUILD_DATE}.img.xz.sha256" "RasPINE-latest.img.xz.sha256"
+        cd ../..
+        
+        # Commit and push
+        cd gh-pages
+        git add .
+        git commit -m "Update downloads for build ${BUILD_DATE}" || exit 0
+        git push origin gh-pages

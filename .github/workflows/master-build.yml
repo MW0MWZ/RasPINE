@@ -1,0 +1,544 @@
+name: Master Build Pipeline
+
+on:
+  schedule:
+    - cron: '0 2 * * 1'  # Weekly on Monday at 2 AM UTC
+  workflow_dispatch:
+    inputs:
+      force_package_update:
+        type: boolean
+        description: 'Force package rebuild even if no changes'
+        required: false
+        default: false
+      skip_packages:
+        type: boolean
+        description: 'Skip package build/update'
+        required: false
+        default: false
+      build_image:
+        type: boolean
+        description: 'Build RasPINE image'
+        required: false
+        default: true
+
+# Prevent concurrent runs - queue them instead
+concurrency:
+  group: master-pipeline
+  cancel-in-progress: false
+
+jobs:
+  check-upstream:
+    name: Check for Upstream Updates
+    runs-on: ubuntu-latest
+    outputs:
+      needs_package_update: ${{ steps.check.outputs.needs_update }}
+      kernel_version: ${{ steps.check.outputs.kernel_version }}
+      current_repo_version: ${{ steps.check.outputs.repo_version }}
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Check for Raspberry Pi OS updates
+      id: check
+      run: |
+        set -e
+        
+        echo "::group::Checking for upstream updates"
+        
+        # Check if force update requested
+        if [ "${{ github.event.inputs.force_package_update }}" = "true" ]; then
+          echo "Force package update requested"
+          echo "needs_update=true" >> $GITHUB_OUTPUT
+          
+          # Still need to get the kernel version
+          REPO_BASE="http://archive.raspberrypi.org/debian"
+          RASPIOS_DIST="bookworm"
+          
+          LATEST_KERNEL=$(curl -s "${REPO_BASE}/dists/${RASPIOS_DIST}/main/binary-armhf/Packages.gz" | \
+                          gunzip | grep -A 10 "^Package: raspberrypi-kernel$" | \
+                          grep "^Version:" | cut -d' ' -f2 | head -1)
+          
+          echo "kernel_version=$LATEST_KERNEL" >> $GITHUB_OUTPUT
+          echo "repo_version=unknown" >> $GITHUB_OUTPUT
+          echo "::endgroup::"
+          exit 0
+        fi
+        
+        # Skip if packages are being skipped
+        if [ "${{ github.event.inputs.skip_packages }}" = "true" ]; then
+          echo "Package updates skipped by user"
+          echo "needs_update=false" >> $GITHUB_OUTPUT
+          echo "kernel_version=skipped" >> $GITHUB_OUTPUT
+          echo "repo_version=skipped" >> $GITHUB_OUTPUT
+          echo "::endgroup::"
+          exit 0
+        fi
+        
+        # Check Raspberry Pi OS repository for latest kernel
+        REPO_BASE="http://archive.raspberrypi.org/debian"
+        RASPIOS_DIST="bookworm"
+        
+        echo "Checking Raspberry Pi OS repository..."
+        LATEST_KERNEL=$(curl -s "${REPO_BASE}/dists/${RASPIOS_DIST}/main/binary-armhf/Packages.gz" | \
+                        gunzip | grep -A 10 "^Package: raspberrypi-kernel$" | \
+                        grep "^Version:" | cut -d' ' -f2 | head -1)
+        
+        if [ -z "$LATEST_KERNEL" ]; then
+          echo "ERROR: Could not determine latest kernel version"
+          exit 1
+        fi
+        
+        echo "Latest upstream kernel version: $LATEST_KERNEL"
+        
+        # Check what's currently in our repository
+        echo "Checking our repository for current version..."
+        CURRENT_VERSION=""
+        
+        # Try to fetch the APKINDEX from our repo
+        if curl -f -s -o /tmp/apkindex.tar.gz https://raspine.pistar.uk/v3.22/community/armhf/APKINDEX.tar.gz 2>/dev/null; then
+          # Extract and find raspios-kernel packages
+          if tar -xzOf /tmp/apkindex.tar.gz APKINDEX 2>/dev/null > /tmp/apkindex.txt; then
+            # Look for our kernel packages and extract versions
+            REPO_VERSIONS=$(grep -A1 "^P:raspios-kernel-v" /tmp/apkindex.txt | \
+                           grep "^V:" | sed 's/^V://' | \
+                           sed 's/-r[0-9]*//' | sort -V -u | tail -1)
+            
+            if [ -n "$REPO_VERSIONS" ]; then
+              CURRENT_VERSION="$REPO_VERSIONS"
+              echo "Current version in repository: $CURRENT_VERSION"
+            else
+              echo "No kernel packages found in repository"
+            fi
+          fi
+          rm -f /tmp/apkindex.tar.gz /tmp/apkindex.txt
+        else
+          echo "Could not fetch APKINDEX from repository (may not exist yet)"
+        fi
+        
+        # Also check packages.json for kernel version
+        if curl -f -s -o /tmp/packages.json https://raspine.pistar.uk/packages.json 2>/dev/null; then
+          JSON_KERNEL=$(grep '"kernel_version"' /tmp/packages.json | sed 's/.*"kernel_version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
+          if [ -n "$JSON_KERNEL" ]; then
+            echo "Kernel version from packages.json: $JSON_KERNEL"
+          fi
+          rm -f /tmp/packages.json
+        fi
+        
+        # Compare versions - we need to be smarter about this
+        # The upstream version is like "1:1.20230405-1"
+        # Our APK version is like "6.6.51"
+        # We should compare the actual kernel version, not the package version
+        
+        NEEDS_UPDATE=false
+        
+        # Check if we have a stored kernel version to compare
+        if [ -f .last_build_info ]; then
+          source .last_build_info
+          
+          if [ "$LAST_KERNEL_VERSION" != "$LATEST_KERNEL" ]; then
+            echo "Kernel package version changed: $LAST_KERNEL_VERSION -> $LATEST_KERNEL"
+            NEEDS_UPDATE=true
+          else
+            echo "Kernel package version unchanged: $LATEST_KERNEL"
+            # No monthly rebuild - only build on actual changes
+            NEEDS_UPDATE=false
+          fi
+        else
+          echo "No previous build info found, need initial build"
+          NEEDS_UPDATE=true
+        fi
+        
+        echo "needs_update=$NEEDS_UPDATE" >> $GITHUB_OUTPUT
+        echo "kernel_version=$LATEST_KERNEL" >> $GITHUB_OUTPUT
+        echo "repo_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+        
+        if [ "$NEEDS_UPDATE" = "true" ]; then
+          echo "📦 Package updates needed!"
+        else
+          echo "✅ Packages are up to date - no rebuild needed"
+        fi
+        
+        echo "::endgroup::"
+
+  build-packages:
+    name: Build and Deploy APK Packages
+    needs: check-upstream
+    if: |
+      needs.check-upstream.outputs.needs_package_update == 'true' && 
+      github.event.inputs.skip_packages != 'true'
+    uses: ./.github/workflows/build-raspios-packages.yml
+    with:
+      raspios_dist: 'bookworm'
+      alpine_version: 'all'
+      package_types: 'all'
+    secrets: inherit
+
+  wait-for-repository:
+    name: Wait for Repository Deployment
+    needs: build-packages
+    if: |
+      always() && 
+      needs.build-packages.result == 'success'
+    runs-on: ubuntu-latest
+    outputs:
+      repository_ready: ${{ steps.verify.outputs.ready }}
+    
+    steps:
+    - name: Wait for GitHub Pages deployment
+      id: verify
+      run: |
+        echo "::group::Waiting for repository deployment"
+        
+        echo "Waiting 30 seconds for GitHub Pages to start deployment..."
+        sleep 30
+        
+        # Maximum wait time: 5 minutes (20 attempts × 15 seconds)
+        MAX_ATTEMPTS=20
+        ATTEMPT=0
+        REPO_READY=false
+        
+        while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
+          ATTEMPT=$((ATTEMPT + 1))
+          echo "Verification attempt $ATTEMPT/$MAX_ATTEMPTS..."
+          
+          # Check if the repository is accessible and has our packages
+          if curl -f -s -o /tmp/test-apkindex.tar.gz https://raspine.pistar.uk/v3.22/community/armhf/APKINDEX.tar.gz 2>/dev/null; then
+            # Verify it's actually an APKINDEX and has our packages
+            if tar -tzf /tmp/test-apkindex.tar.gz 2>/dev/null | grep -q APKINDEX; then
+              # Check if it contains our kernel packages
+              if tar -xzOf /tmp/test-apkindex.tar.gz APKINDEX 2>/dev/null | grep -q "^P:raspios-kernel"; then
+                echo "✅ Repository is ready with kernel packages!"
+                REPO_READY=true
+                rm -f /tmp/test-apkindex.tar.gz
+                break
+              else
+                echo "  APKINDEX exists but no kernel packages found yet..."
+              fi
+            else
+              echo "  File exists but is not a valid APKINDEX..."
+            fi
+            rm -f /tmp/test-apkindex.tar.gz
+          else
+            echo "  Repository not accessible yet..."
+          fi
+          
+          if [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
+            echo "  Waiting 15 seconds before next check..."
+            sleep 15
+          fi
+        done
+        
+        if [ "$REPO_READY" = "true" ]; then
+          echo "ready=true" >> $GITHUB_OUTPUT
+          
+          # Show what's in the repository
+          echo ""
+          echo "Repository contents:"
+          curl -s https://raspine.pistar.uk/v3.22/community/armhf/APKINDEX.tar.gz | \
+            tar -xzOf - APKINDEX | grep "^P:" | sort -u | head -10
+        else
+          echo "ready=false" >> $GITHUB_OUTPUT
+          echo "❌ Repository did not become ready after $MAX_ATTEMPTS attempts"
+        fi
+        
+        echo "::endgroup::"
+
+  check-image-needed:
+    name: Check if Image Build Needed
+    needs: [check-upstream, build-packages, wait-for-repository]
+    if: always()
+    runs-on: ubuntu-latest
+    outputs:
+      build_image: ${{ steps.decide.outputs.build }}
+      image_reason: ${{ steps.decide.outputs.reason }}
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Decide if image build is needed
+      id: decide
+      run: |
+        echo "::group::Determining if image build is needed"
+        
+        BUILD_IMAGE=false
+        REASON="No build needed"
+        
+        # Check user input first
+        if [ "${{ github.event.inputs.build_image }}" = "false" ]; then
+          echo "Image build disabled by user"
+          REASON="Disabled by user"
+        elif [ "${{ github.event.inputs.build_image }}" = "true" ] || [ -z "${{ github.event.inputs.build_image }}" ]; then
+          # User wants image (or default)
+          
+          # Check if repository is ready
+          if [ "${{ needs.wait-for-repository.outputs.repository_ready }}" != "true" ]; then
+            # Repository might not be ready from this run, but check if it exists
+            if curl -f -s https://raspine.pistar.uk/raspine.rsa.pub > /dev/null 2>&1; then
+              echo "Repository exists from previous run"
+              BUILD_IMAGE=true
+              REASON="Repository available"
+            else
+              echo "Repository not ready, skipping image build"
+              REASON="Repository not ready"
+            fi
+          else
+            echo "Repository is ready from package build"
+            BUILD_IMAGE=true
+            REASON="New packages available"
+          fi
+          
+          # Also check if image is outdated
+          if [ "$BUILD_IMAGE" = "true" ]; then
+            # Check when last image was built
+            if [ -f .last_build_info ]; then
+              source .last_build_info
+              IMAGE_DATE=${LAST_IMAGE_DATE:-0}
+              CURRENT_EPOCH=$(date +%s)
+              DAYS_SINCE_IMAGE=$(( (CURRENT_EPOCH - IMAGE_DATE) / 86400 ))
+              
+              if [ $DAYS_SINCE_IMAGE -gt 7 ]; then
+                echo "Last image was built $DAYS_SINCE_IMAGE days ago"
+                REASON="$REASON + Weekly rebuild"
+              fi
+            fi
+          fi
+        fi
+        
+        echo "build=$BUILD_IMAGE" >> $GITHUB_OUTPUT
+        echo "reason=$REASON" >> $GITHUB_OUTPUT
+        
+        echo "Image build decision: $BUILD_IMAGE"
+        echo "Reason: $REASON"
+        
+        echo "::endgroup::"
+
+  build-image:
+    name: Build RasPINE Image
+    needs: check-image-needed
+    if: needs.check-image-needed.outputs.build_image == 'true'
+    uses: ./.github/workflows/build-raspine.yml
+    secrets: inherit
+
+  create-release:
+    name: Create GitHub Release
+    needs: [check-upstream, build-image]
+    if: |
+      always() && 
+      needs.build-image.result == 'success'
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Download image artifacts
+      uses: actions/download-artifact@v4
+      with:
+        pattern: RasPINE-*
+        path: release-files/
+    
+    - name: Create Release
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        KERNEL_VERSION: ${{ needs.check-upstream.outputs.kernel_version }}
+      run: |
+        echo "::group::Creating release"
+        
+        # Get date for tag
+        RELEASE_DATE=$(date +'%Y-%m-%d')
+        TAG_NAME="v${RELEASE_DATE}"
+        
+        # Extract kernel version number for release title
+        KERNEL_VER=$(echo "$KERNEL_VERSION" | sed 's/+.*//')
+        
+        # Check if we have image files
+        if ! ls release-files/RasPINE-*/*.img.xz 2>/dev/null; then
+          echo "No image files found, skipping release"
+          exit 0
+        fi
+        
+        # Create release body
+        cat > release-body.md << EOF
+        # RasPINE Hybrid Image - ${RELEASE_DATE}
+        
+        **Kernel Version:** ${KERNEL_VERSION}
+        **Alpine Version:** 3.22
+        **Build Date:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')
+        
+        ## 📥 Downloads
+        
+        Download the image file and verify with the SHA256 checksum.
+        
+        ## 🚀 Quick Start
+        
+        1. Extract: \`xz -d RasPINE-*.img.xz\`
+        2. Write to SD: \`sudo dd if=RasPINE-*.img of=/dev/sdX bs=4M status=progress\`
+        3. Boot your Raspberry Pi
+        4. Login: **raspine** / **raspberry**
+        
+        ## 📦 Package Repository
+        
+        APK packages available at: https://raspine.pistar.uk/
+        
+        ## 📝 Changes
+        
+        - Kernel: ${KERNEL_VERSION}
+        - Regular security updates
+        - Repository maintenance
+        
+        ## ✅ Compatibility
+        
+        Works with all Raspberry Pi models (Zero/1/2/3/4/5).
+        EOF
+        
+        # Create the release
+        gh release create "$TAG_NAME" \
+          --title "RasPINE ${RELEASE_DATE} - Kernel ${KERNEL_VER}" \
+          --notes-file release-body.md \
+          --target main \
+          release-files/RasPINE-*/*.img.xz \
+          release-files/RasPINE-*/*.img.xz.sha256 \
+          release-files/RasPINE-*/*.info.txt || {
+          echo "Release creation failed, might already exist"
+        }
+        
+        echo "::endgroup::"
+
+  update-build-info:
+    name: Update Build Information
+    needs: [check-upstream, build-packages, build-image]
+    if: always()
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Update build information
+      run: |
+        echo "::group::Updating build information"
+        
+        # Start with existing info if it exists
+        if [ -f .last_build_info ]; then
+          source .last_build_info
+        fi
+        
+        # Update with new information
+        cat > .last_build_info << EOF
+        LAST_KERNEL_VERSION="${{ needs.check-upstream.outputs.kernel_version }}"
+        LAST_BUILD_DATE=$(date +%s)
+        LAST_BUILD_TIMESTAMP="$(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+        EOF
+        
+        # Add package build info if packages were built
+        if [ "${{ needs.build-packages.result }}" = "success" ]; then
+          echo "LAST_PACKAGE_BUILD=$(date +%s)" >> .last_build_info
+          echo "LAST_PACKAGE_VERSION=\"${{ needs.check-upstream.outputs.kernel_version }}\"" >> .last_build_info
+        elif [ -n "$LAST_PACKAGE_BUILD" ]; then
+          echo "LAST_PACKAGE_BUILD=$LAST_PACKAGE_BUILD" >> .last_build_info
+          echo "LAST_PACKAGE_VERSION=\"$LAST_PACKAGE_VERSION\"" >> .last_build_info
+        fi
+        
+        # Add image build info if image was built
+        if [ "${{ needs.build-image.result }}" = "success" ]; then
+          echo "LAST_IMAGE_DATE=$(date +%s)" >> .last_build_info
+          echo "LAST_IMAGE_BUILD=\"$(date -u '+%Y-%m-%d %H:%M:%S UTC')\"" >> .last_build_info
+        elif [ -n "$LAST_IMAGE_DATE" ]; then
+          echo "LAST_IMAGE_DATE=$LAST_IMAGE_DATE" >> .last_build_info
+          echo "LAST_IMAGE_BUILD=\"$LAST_IMAGE_BUILD\"" >> .last_build_info
+        fi
+        
+        # Commit the update
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        
+        git add .last_build_info
+        git commit -m "Update build info [skip ci]" || echo "No changes to commit"
+        git push || echo "No changes to push"
+        
+        echo "Build info updated:"
+        cat .last_build_info
+        
+        echo "::endgroup::"
+
+  cleanup-old-releases:
+    name: Cleanup Old Releases
+    needs: create-release
+    if: needs.create-release.result == 'success'
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Cleanup old releases
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        echo "::group::Cleaning up old releases"
+        
+        # Keep only the last 5 releases
+        gh release list --limit 100 --json tagName,createdAt --jq '.[5:] | .[].tagName' | \
+        while read tag; do
+          echo "Deleting old release: $tag"
+          gh release delete "$tag" --yes || true
+          git push --delete origin "$tag" || true
+        done
+        
+        echo "::endgroup::"
+
+  final-summary:
+    name: Build Summary
+    needs: [check-upstream, build-packages, build-image, create-release]
+    if: always()
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Generate summary
+      run: |
+        echo "# 🏔️ RasPINE Build Pipeline Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        # Package status
+        echo "## 📦 Package Build" >> $GITHUB_STEP_SUMMARY
+        if [ "${{ needs.build-packages.result }}" = "success" ]; then
+          echo "✅ Packages built and deployed successfully" >> $GITHUB_STEP_SUMMARY
+          echo "- Kernel version: ${{ needs.check-upstream.outputs.kernel_version }}" >> $GITHUB_STEP_SUMMARY
+        elif [ "${{ needs.build-packages.result }}" = "skipped" ]; then
+          echo "⏭️ Package build skipped (not needed or disabled)" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "❌ Package build failed or incomplete" >> $GITHUB_STEP_SUMMARY
+        fi
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        # Image status
+        echo "## 💿 Image Build" >> $GITHUB_STEP_SUMMARY
+        if [ "${{ needs.build-image.result }}" = "success" ]; then
+          echo "✅ Image built successfully" >> $GITHUB_STEP_SUMMARY
+          echo "- Build date: $(date -u '+%Y-%m-%d')" >> $GITHUB_STEP_SUMMARY
+        elif [ "${{ needs.build-image.result }}" = "skipped" ]; then
+          echo "⏭️ Image build skipped" >> $GITHUB_STEP_SUMMARY
+          echo "- Reason: ${{ needs.check-image-needed.outputs.image_reason }}" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "❌ Image build failed or incomplete" >> $GITHUB_STEP_SUMMARY
+        fi
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        # Release status
+        echo "## 🚀 Release" >> $GITHUB_STEP_SUMMARY
+        if [ "${{ needs.create-release.result }}" = "success" ]; then
+          echo "✅ Release created successfully" >> $GITHUB_STEP_SUMMARY
+          echo "[View latest release](https://github.com/${{ github.repository }}/releases/latest)" >> $GITHUB_STEP_SUMMARY
+        elif [ "${{ needs.create-release.result }}" = "skipped" ]; then
+          echo "⏭️ Release creation skipped" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "❌ Release creation failed" >> $GITHUB_STEP_SUMMARY
+        fi
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        # Repository link
+        echo "## 🌐 Links" >> $GITHUB_STEP_SUMMARY
+        echo "- [APK Repository](https://raspine.pistar.uk/)" >> $GITHUB_STEP_SUMMARY
+        echo "- [Downloads](https://github.com/${{ github.repository }}/releases)" >> $GITHUB_STEP_SUMMARY
+        echo "- [Source Code](https://github.com/${{ github.repository }})" >> $GITHUB_STEP_SUMMARY
