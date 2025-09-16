@@ -74,7 +74,7 @@ jobs:
         include:
           - arch: armhf
             platform: linux/arm/v6
-            variants: "v6 v7 v7l v8"
+            variants: "v6 v7 v8"
           - arch: aarch64
             platform: linux/arm64
             variants: "v8"
@@ -248,7 +248,7 @@ jobs:
               cd "$dir"
               
               # For each package type, keep ONLY the newest by timestamp
-              for prefix in raspios-kernel-v6 raspios-kernel-v7 raspios-kernel-v7l raspios-kernel-v8 raspios-firmware raspios-kernel-headers-common raspios-bootloader; do
+              for prefix in raspios-kernel-v6 raspios-kernel-v7 raspios-kernel-v8 raspios-firmware raspios-kernel-headers-common raspios-bootloader; do
                 NEWEST=$(ls -t ${prefix}-*.apk 2>/dev/null | head -1)
                 
                 if [ -n "$NEWEST" ]; then
@@ -342,7 +342,7 @@ jobs:
             (
               cd "$dir"
               
-              for prefix in raspios-kernel-v6 raspios-kernel-v7 raspios-kernel-v7l raspios-kernel-v8 raspios-firmware raspios-kernel-headers-common raspios-bootloader; do
+              for prefix in raspios-kernel-v6 raspios-kernel-v7 raspios-kernel-v8 raspios-firmware raspios-kernel-headers-common raspios-bootloader; do
                 NEWEST=$(ls -t ${prefix}-*.apk 2>/dev/null | head -1)
                 
                 if [ -n "$NEWEST" ]; then
@@ -496,7 +496,7 @@ jobs:
           
           # If we have the full version, use it without the variant suffix
           if [ -n "$FULL_KERNEL_VERSION" ]; then
-            # Remove any -v6, -v7, -v7l, -v8 suffix
+            # Remove any -v6, -v7, -v8 suffix
             KERNEL_VERSION_DISPLAY=$(echo "$FULL_KERNEL_VERSION" | sed 's/-v[0-9][l]*$//')
           elif [ -n "$KERNEL_VERSION" ]; then
             # Use what we extracted from packages

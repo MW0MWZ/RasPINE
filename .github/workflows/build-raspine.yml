@@ -234,7 +234,6 @@ jobs:
           raspios-firmware \
           raspios-kernel-v6 \
           raspios-kernel-v7 \
-          raspios-kernel-v7l \
           raspios-kernel-v8
         
         # Fix the mkinitfs trigger error by creating the directory/file it expects
