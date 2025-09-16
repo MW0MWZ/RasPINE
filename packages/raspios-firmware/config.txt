@@ -23,72 +23,75 @@ disable_overscan=1
 
 # Model Specifics
 [pi0]
-kernel=kernel.img
-gpu_mem=16
-dtoverlay=vc4-fkms-v3d,miniuart-bt
+dtoverlay=vc4-fkms-v3d
 max_framebuffers=1
+gpu_mem=16
+kernel=kernel.img
+dtoverlay=miniuart-bt
 
 [pi1]
-kernel=kernel.img
-gpu_mem=16
 dtoverlay=vc4-fkms-v3d
 max_framebuffers=1
+gpu_mem=16
+kernel=kernel.img
 
 [pi2]
-kernel=kernel.img
-gpu_mem=16
 dtoverlay=vc4-fkms-v3d
 max_framebuffers=1
+gpu_mem=16
+kernel=kernel7.img
 
 [pi3]
-kernel=kernel8.img
-gpu_mem=64
-dtoverlay=vc4-kms-v3d,miniuart-bt
+dtoverlay=vc4-fkms-v3d
 max_framebuffers=1
+gpu_mem=16
+kernel=kernel8.img
+dtoverlay=miniuart-bt
 
 [pi3+]
-kernel=kernel8.img
-gpu_mem=64
-dtoverlay=vc4-kms-v3d,miniuart-bt
+dtoverlay=vc4-fkms-v3d
 max_framebuffers=1
+gpu_mem=16
+kernel=kernel8.img
+dtoverlay=miniuart-bt
 
 [pi02]
+dtoverlay=vc4-fkms-v3d
+max_framebuffers=1
+gpu_mem=16
 kernel=kernel8.img
 arm_freq=800
 gpu_freq=100
-gpu_mem=64
-dtoverlay=vc4-kms-v3d,miniuart-bt
-max_framebuffers=1
+dtoverlay=miniuart-bt
 
 [pi4]
-kernel=kernel8.img
-gpu_mem=64
-dtoverlay=vc4-kms-v3d,miniuart-bt
+dtoverlay=vc4-kms-v3d,noaudio
 max_framebuffers=2
+gpu_mem=64
+kernel=kernel8.img
+dtoverlay=miniuart-bt
 
 [cm4]
+dtoverlay=vc4-kms-v3d,noaudio
+max_framebuffers=2
+gpu_mem=64
 kernel=kernel8.img
 otg_mode=1
-gpu_mem=64
-dtoverlay=vc4-kms-v3d
-max_framebuffers=2
 
 [pi5]
-kernel=kernel8.img
-gpu_mem=64
-dtoverlay=vc4-kms-v3d,miniuart-bt
+dtoverlay=vc4-kms-v3d,noaudio
 max_framebuffers=2
+gpu_mem=64
+kernel=kernel8.img
+dtoverlay=miniuart-bt
 
 [cm5]
+dtoverlay=vc4-kms-v3d,noaudio
+max_framebuffers=2
+gpu_mem=64
 kernel=kernel8.img
 dtoverlay=dwc2,dr_mode=host
-gpu_mem=64
-dtoverlay=vc4-kms-v3d
-max_framebuffers=2
 
 [all]
 temp_limit=75
-dtparam=uart1=on
-dtparam=uart0=on
-dtparam=spi=on
-dtparam=i2c_arm=on
+dtparam=uart1=on,uart0=on,spi=on,i2c_arm=on
