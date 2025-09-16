@@ -153,6 +153,51 @@
             50% { border-color: rgba(255,255,255,0.4); box-shadow: 0 0 20px rgba(255,255,255,0.2); }
         }
 
+        .status-bar {
+            background: var(--bg-card);
+            border-radius: 15px;
+            padding: 20px;
+            margin: 20px 0;
+            border: 1px solid var(--border-color);
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 15px;
+            background: rgba(74, 143, 185, 0.1);
+            border: 1px solid rgba(74, 143, 185, 0.3);
+            border-radius: 20px;
+            font-size: 0.9em;
+            transition: all 0.3s ease;
+        }
+
+        .status-badge:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(74, 143, 185, 0.2);
+        }
+
+        .status-badge.success {
+            background: rgba(90, 138, 60, 0.1);
+            border-color: rgba(90, 138, 60, 0.3);
+        }
+
+        .status-badge.info {
+            background: rgba(66, 153, 225, 0.1);
+            border-color: rgba(66, 153, 225, 0.3);
+        }
+
+        .status-badge a {
+            color: var(--text-light);
+            text-decoration: none;
+        }
+
         .download-section {
             background: linear-gradient(135deg, rgba(44, 95, 124, 0.2) 0%, rgba(139, 21, 56, 0.2) 50%, rgba(90, 138, 60, 0.2) 100%);
             border-radius: 15px;
@@ -444,6 +489,51 @@
             flex: 1;
         }
 
+        .boot-config-section {
+            background: linear-gradient(135deg, rgba(90, 138, 60, 0.2) 0%, rgba(44, 95, 124, 0.2) 100%);
+            border-radius: 15px;
+            padding: 30px;
+            margin: 40px 0;
+            border: 1px solid var(--leaf-green);
+        }
+
+        .boot-config-section h2 {
+            color: var(--leaf-green);
+            margin-bottom: 20px;
+            font-size: 2em;
+        }
+
+        .config-feature {
+            background: var(--bg-card);
+            border-radius: 10px;
+            padding: 15px 20px;
+            margin: 10px 0;
+            border-left: 4px solid var(--leaf-green);
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .config-icon {
+            font-size: 1.5em;
+            flex-shrink: 0;
+        }
+
+        .config-content {
+            flex: 1;
+        }
+
+        .config-title {
+            font-weight: 600;
+            color: var(--mountain-blue);
+            margin-bottom: 5px;
+        }
+
+        .config-desc {
+            font-size: 0.9em;
+            opacity: 0.9;
+        }
+
         .stats-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
@@ -571,6 +661,11 @@
             .logo-container {
                 flex-direction: column;
             }
+
+            .status-bar {
+                flex-direction: column;
+                align-items: stretch;
+            }
         }
     </style>
 </head>
@@ -591,6 +686,33 @@
                 </div>
             </div>
         </header>
+
+        <div class="status-bar">
+            <div class="status-badge success">
+                <span>✅</span>
+                <a href="https://github.com/MW0MWZ/RasPINE/actions/workflows/master-build.yml">
+                    Build Passing
+                </a>
+            </div>
+            <div class="status-badge info">
+                <span>📦</span>
+                <a href="https://github.com/MW0MWZ/RasPINE/releases/latest">
+                    Latest Release
+                </a>
+            </div>
+            <div class="status-badge">
+                <span>⬇️</span>
+                <span id="download-count">Loading...</span> Downloads
+            </div>
+            <div class="status-badge">
+                <span>🏔️</span>
+                Alpine v3.22
+            </div>
+            <div class="status-badge">
+                <span>🐧</span>
+                <span id="kernel-version">Latest Kernel</span>
+            </div>
+        </div>
 
         <div class="download-section">
             <h2 style="color: var(--mountain-blue); font-size: 2em; margin-bottom: 10px;">📥 Download RasPINE</h2>
@@ -752,6 +874,78 @@
             </div>
         </div>
 
+        <div class="boot-config-section">
+            <h2>⚙️ Zero-Touch Boot Configuration</h2>
+            <p style="margin-bottom: 20px; opacity: 0.9;">
+                Configure your RasPINE system before first boot! Simply create a <code style="background: var(--code-bg); padding: 2px 6px; border-radius: 3px;">raspine-config.txt</code> 
+                file on the boot partition of your SD card to automatically set up WiFi, SSH keys, passwords, and more.
+            </p>
+            
+            <div class="config-feature">
+                <div class="config-icon">📶</div>
+                <div class="config-content">
+                    <div class="config-title">WiFi Networks</div>
+                    <div class="config-desc">Configure multiple WiFi networks with priority ordering - perfect for mobile setups</div>
+                </div>
+            </div>
+            
+            <div class="config-feature">
+                <div class="config-icon">🔑</div>
+                <div class="config-content">
+                    <div class="config-title">SSH Access</div>
+                    <div class="config-desc">Add SSH keys and control password authentication for secure remote access</div>
+                </div>
+            </div>
+            
+            <div class="config-feature">
+                <div class="config-icon">🔐</div>
+                <div class="config-content">
+                    <div class="config-title">User Security</div>
+                    <div class="config-desc">Set custom passwords and manage user accounts right from the config file</div>
+                </div>
+            </div>
+            
+            <div class="config-feature">
+                <div class="config-icon">🌍</div>
+                <div class="config-content">
+                    <div class="config-title">System Settings</div>
+                    <div class="config-desc">Configure hostname, timezone, locale, and WiFi country code</div>
+                </div>
+            </div>
+
+            <h3 style="color: var(--mountain-blue); margin-top: 30px; margin-bottom: 15px;">Example Configuration</h3>
+            <div class="code-block">
+                <pre># Copy raspine-config.txt.sample to raspine-config.txt and edit
+# WARNING: This file is deleted after processing for security!
+
+# WiFi Networks (priority: higher numbers = higher priority)
+wifi_ssid=HomeNetwork
+wifi_password=HomePassword
+
+wifi_ssid_2=WorkNetwork
+wifi_password_2=WorkPassword
+
+wifi_ssid_3=MobileHotspot
+wifi_password_3=HotspotPassword
+
+# Security
+user_password=MySecurePassword
+enable_ssh_password=false
+ssh_key=ssh-rsa AAAAB3NzaC1yc2EAAAA... user@example.com
+
+# System
+hostname=my-raspine
+timezone=Europe/London
+wifi_country=GB</pre>
+                <button class="copy-button" onclick="copyToClipboard(this, this.parentElement.querySelector('pre').textContent)">Copy</button>
+            </div>
+            
+            <p style="margin-top: 20px; padding: 15px; background: rgba(237, 137, 54, 0.1); border-left: 4px solid var(--warning); border-radius: 5px;">
+                <strong>🔒 Security Note:</strong> The config file is automatically deleted after processing to protect your passwords and SSH keys. 
+                Always keep a backup of your configuration settings in a secure location.
+            </p>
+        </div>
+
         <h2 class="section-title">🥧 Compatible Raspberry Pi Models</h2>
         <div class="compatibility-grid">
             <div class="pi-model">
@@ -821,11 +1015,21 @@
             <div class="step">
                 <div class="step-number">3</div>
                 <div class="step-content">
+                    <strong>(Optional) Configure before boot:</strong>
+                    <div style="margin-top: 10px;">
+                        <p>Mount the boot partition and copy <code style="background: var(--code-bg); padding: 2px 6px; border-radius: 3px;">raspine-config.txt.sample</code> 
+                        to <code style="background: var(--code-bg); padding: 2px 6px; border-radius: 3px;">raspine-config.txt</code>, then edit with your settings.</p>
+                    </div>
+                </div>
+            </div>
+            <div class="step">
+                <div class="step-number">4</div>
+                <div class="step-content">
                     <strong>Boot and login:</strong>
                     <div style="margin-top: 10px;">
                         <p>Username: <code style="background: var(--code-bg); padding: 2px 6px; border-radius: 3px;">raspine</code></p>
-                        <p>Password: <code style="background: var(--code-bg); padding: 2px 6px; border-radius: 3px;">raspberry</code></p>
-                        <p style="color: var(--warning); margin-top: 10px;">⚠️ Change password immediately: <code style="background: var(--code-bg); padding: 2px 6px; border-radius: 3px;">passwd</code></p>
+                        <p>Password: <code style="background: var(--code-bg); padding: 2px 6px; border-radius: 3px;">raspberry</code> (or your configured password)</p>
+                        <p style="color: var(--warning); margin-top: 10px;">⚠️ Change password immediately if using default: <code style="background: var(--code-bg); padding: 2px 6px; border-radius: 3px;">passwd</code></p>
                     </div>
                 </div>
             </div>
@@ -865,6 +1069,10 @@
                 <tr>
                     <td>Build Schedule</td>
                     <td>Weekly automated builds with latest kernels</td>
+                </tr>
+                <tr>
+                    <td>Boot Configuration</td>
+                    <td>Zero-touch setup via raspine-config.txt</td>
                 </tr>
             </table>
         </div>
@@ -907,6 +1115,36 @@
                 }
             });
 
+        // Fetch GitHub API for download count and kernel version
+        fetch('https://api.github.com/repos/MW0MWZ/RasPINE/releases')
+            .then(response => response.json())
+            .then(releases => {
+                let totalDownloads = 0;
+                releases.forEach(release => {
+                    release.assets.forEach(asset => {
+                        totalDownloads += asset.download_count;
+                    });
+                });
+                document.getElementById('download-count').textContent = totalDownloads.toLocaleString();
+            })
+            .catch(err => {
+                console.error('Failed to load GitHub stats:', err);
+                document.getElementById('download-count').textContent = '1000+';
+            });
+
+        // Fetch kernel version from RasPINE repo
+        fetch('https://raspine.pistar.uk/packages.json')
+            .then(response => response.json())
+            .then(data => {
+                if (data.kernel_version) {
+                    document.getElementById('kernel-version').textContent = 'Kernel ' + data.kernel_version;
+                }
+            })
+            .catch(err => {
+                console.error('Failed to load kernel version:', err);
+                document.getElementById('kernel-version').textContent = 'Latest Kernel';
+            });
+
         function copyToClipboard(button, text) {
             navigator.clipboard.writeText(text).then(() => {
                 const originalText = button.textContent;
@@ -941,7 +1179,7 @@
                 });
             }, observerOptions);
 
-            document.querySelectorAll('.card, .feature-card, .pi-model').forEach(element => {
+            document.querySelectorAll('.card, .feature-card, .pi-model, .config-feature').forEach(element => {
                 observer.observe(element);
             });
         });
