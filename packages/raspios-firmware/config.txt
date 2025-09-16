@@ -60,8 +60,6 @@ dtoverlay=vc4-fkms-v3d
 max_framebuffers=1
 gpu_mem=16
 kernel=kernel8.img
-arm_freq=800
-gpu_freq=100
 dtoverlay=miniuart-bt
 
 [pi4]
