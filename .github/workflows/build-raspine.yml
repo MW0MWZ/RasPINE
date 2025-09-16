@@ -860,27 +860,41 @@ jobs:
           cd ..
         }
         
+        # Clean up old RasPINE files in downloads directory
+        # This removes all RasPINE-YYYY-MM-DD.* files except symlinks
+        if [ -d "gh-pages/downloads" ]; then
+          echo "Cleaning up old RasPINE builds..."
+          cd gh-pages/downloads
+          
+          # Remove all date-specific RasPINE files (but not the -latest symlinks)
+          find . -maxdepth 1 -type f -name "RasPINE-[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9].*" -delete
+          
+          # Also remove any broken symlinks
+          find . -maxdepth 1 -type l ! -exec test -e {} \; -delete
+          
+          cd ../..
+          echo "Old builds cleaned up"
+        fi
+        
         # Update downloads
         mkdir -p gh-pages/downloads
         cp build-artifacts/*.info.txt gh-pages/downloads/
         cp build-artifacts/*.sha256 gh-pages/downloads/
         
         # Create redirect page
-        cat > gh-pages/downloads/RasPINE-${BUILD_DATE}.img.xz.html << EOF
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="UTF-8">
-            <title>Downloading RasPINE-${BUILD_DATE}.img.xz</title>
-            <meta http-equiv="refresh" content="0; url=https://github.com/${{ github.repository }}/releases/download/v${BUILD_DATE}/RasPINE-${BUILD_DATE}.img.xz">
-        </head>
-        <body>
-            <p>Redirecting to download...</p>
-        </body>
-        </html>
-        EOF
+        echo '<!DOCTYPE html>' > gh-pages/downloads/RasPINE-${BUILD_DATE}.img.xz.html
+        echo '<html>' >> gh-pages/downloads/RasPINE-${BUILD_DATE}.img.xz.html
+        echo '<head>' >> gh-pages/downloads/RasPINE-${BUILD_DATE}.img.xz.html
+        echo '    <meta charset="UTF-8">' >> gh-pages/downloads/RasPINE-${BUILD_DATE}.img.xz.html
+        echo "    <title>Downloading RasPINE-${BUILD_DATE}.img.xz</title>" >> gh-pages/downloads/RasPINE-${BUILD_DATE}.img.xz.html
+        echo "    <meta http-equiv=\"refresh\" content=\"0; url=https://github.com/${{ github.repository }}/releases/download/v${BUILD_DATE}/RasPINE-${BUILD_DATE}.img.xz\">" >> gh-pages/downloads/RasPINE-${BUILD_DATE}.img.xz.html
+        echo '</head>' >> gh-pages/downloads/RasPINE-${BUILD_DATE}.img.xz.html
+        echo '<body>' >> gh-pages/downloads/RasPINE-${BUILD_DATE}.img.xz.html
+        echo '    <p>Redirecting to download...</p>' >> gh-pages/downloads/RasPINE-${BUILD_DATE}.img.xz.html
+        echo '</body>' >> gh-pages/downloads/RasPINE-${BUILD_DATE}.img.xz.html
+        echo '</html>' >> gh-pages/downloads/RasPINE-${BUILD_DATE}.img.xz.html
         
-        # Update symlinks
+        # Update symlinks (using force to overwrite existing)
         cd gh-pages/downloads
         ln -sf "RasPINE-${BUILD_DATE}.img.xz.html" "RasPINE-latest.img.xz.html"
         ln -sf "RasPINE-${BUILD_DATE}.info.txt" "RasPINE-latest.info.txt"
