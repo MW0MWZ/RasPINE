@@ -74,6 +74,7 @@ dtoverlay=vc4-kms-v3d,noaudio
 max_framebuffers=2
 gpu_mem=64
 kernel=kernel8.img
+dtoverlay=miniuart-bt
 otg_mode=1
 
 [pi5]
@@ -88,8 +89,10 @@ dtoverlay=vc4-kms-v3d,noaudio
 max_framebuffers=2
 gpu_mem=64
 kernel=kernel8.img
-dtoverlay=dwc2,dr_mode=host
+dtoverlay=dwc2,dr_mode=host,miniuart-bt
 
 [all]
 temp_limit=75
-dtparam=uart1=on,uart0=on,spi=on,i2c_arm=on
+dtparam=uart0=on
+dtparam=spi=on
+dtparam=i2c_arm=on

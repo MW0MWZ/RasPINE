@@ -225,7 +225,6 @@ jobs:
           openssl \
           sudo \
           tzdata \
-          eudev \
           dhcpcd
         
         # Install Raspberry Pi kernels from RasPINE repo
@@ -249,7 +248,7 @@ jobs:
         echo "Configuring services..."
         rc-update add devfs sysinit
         rc-update add dmesg sysinit
-        rc-update add udev sysinit
+        rc-update add mdev sysinit
         rc-update add modules boot
         rc-update add sysctl boot
         rc-update add hostname boot
@@ -286,13 +285,9 @@ jobs:
         
         # Configure wpa_supplicant service to not fail if no config
         echo 'wpa_supplicant_args="-q"' > /etc/conf.d/wpa_supplicant
-        
-        # Disable predictable network interface names
-        mkdir -p /etc/udev/rules.d
-        ln -s /dev/null /etc/udev/rules.d/80-net-setup-link.rules
 
-        # Allow Dialout to use /dev/ttyAMA[0-9]
-        echo 'KERNEL=="ttyAMA[0-9]*", SUBSYSTEM=="tty", GROUP="dialout", MODE="0660"' >> /etc/udev/rules.d/99-ttyAMA.rules
+        # Add some fixes to /etc/mdev.conf to fix permissions for i2c,spi,ttyAMA0 etc.
+        sed -i '/# fallback for any!device/i\# Allow Dialout to use /dev/ttyAMA[0-9]\nttyAMA[0-9]*        root:dialout 0660\n\n# For I2C devices\ni2c-[0-9]*          root:dialout 0660\n\n# For SPI devices\nspidev[0-9].[0-9]   root:dialout 0660\n' /etc/mdev.conf
         
         # Create necessary directories
         mkdir -p /boot/firmware
