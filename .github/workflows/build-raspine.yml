@@ -225,6 +225,7 @@ jobs:
           openssl \
           sudo \
           tzdata \
+          eudev \
           dhcpcd
         
         # Install Raspberry Pi kernels from RasPINE repo
@@ -248,6 +249,7 @@ jobs:
         echo "Configuring services..."
         rc-update add devfs sysinit
         rc-update add dmesg sysinit
+        rc-update add udev sysinit
         rc-update add modules boot
         rc-update add sysctl boot
         rc-update add hostname boot
@@ -288,6 +290,9 @@ jobs:
         # Disable predictable network interface names
         mkdir -p /etc/udev/rules.d
         ln -s /dev/null /etc/udev/rules.d/80-net-setup-link.rules
+
+        # Allow Dialout to use /dev/ttyAMA[0-9]
+        echo 'KERNEL=="ttyAMA[0-9]*", SUBSYSTEM=="tty", GROUP="dialout", MODE="0660"' >> /etc/udev/rules.d/99-ttyAMA.rules
         
         # Create necessary directories
         mkdir -p /boot/firmware
@@ -299,13 +304,15 @@ jobs:
         chown raspine:raspine /home/raspine
         
         # Add Broadcom WiFi modules to load at boot
-        echo "Adding WiFi modules to auto-load..."
+        echo "Adding WiFi spi/i2c modules to auto-load..."
         cat >> /etc/modules << MODULES
-        # Broadcom WiFi support for Raspberry Pi
+        # Broadcom WiFi spi/i2c support for Raspberry Pi
         brcmfmac
         brcmutil
         cfg80211
         rfkill
+        i2c-dev
+        spidev
         MODULES
         
         # Create modprobe configuration for brcmfmac
