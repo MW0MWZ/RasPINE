@@ -263,57 +263,71 @@ jobs:
       id: decide
       run: |
         echo "::group::Determining if image build is needed"
-        
+
         BUILD_IMAGE=false
         REASON="No build needed"
-        
+
         # Check user input first
         if [ "${{ github.event.inputs.build_image }}" = "false" ]; then
           echo "Image build disabled by user"
           REASON="Disabled by user"
         elif [ "${{ github.event.inputs.build_image }}" = "true" ] || [ -z "${{ github.event.inputs.build_image }}" ]; then
           # User wants image (or default)
-          
-          # Check if repository is ready
-          if [ "${{ needs.wait-for-repository.outputs.repository_ready }}" != "true" ]; then
-            # Repository might not be ready from this run, but check if it exists
-            if curl -f -s https://raspine.pistar.uk/raspine.rsa.pub > /dev/null 2>&1; then
-              echo "Repository exists from previous run"
+
+          # First, check if image is outdated (weekly rebuild trigger)
+          if [ -f .last_build_info ]; then
+            source .last_build_info
+            IMAGE_DATE=${LAST_IMAGE_DATE:-0}
+            CURRENT_EPOCH=$(date +%s)
+            DAYS_SINCE_IMAGE=$(( (CURRENT_EPOCH - IMAGE_DATE) / 86400 ))
+
+            if [ $DAYS_SINCE_IMAGE -gt 7 ]; then
+              echo "Last image was built $DAYS_SINCE_IMAGE days ago - triggering weekly rebuild"
               BUILD_IMAGE=true
-              REASON="Repository available"
-            else
-              echo "Repository not ready, skipping image build"
-              REASON="Repository not ready"
+              REASON="Weekly rebuild ($DAYS_SINCE_IMAGE days since last build)"
             fi
+
           else
+            echo "No previous build info found - triggering initial build"
+            BUILD_IMAGE=true
+            REASON="Initial build (no previous build info)"
+          fi
+
+          # Check if new packages were just built
+          if [ "${{ needs.wait-for-repository.outputs.repository_ready }}" = "true" ]; then
             echo "Repository is ready from package build"
             BUILD_IMAGE=true
-            REASON="New packages available"
+            if [ "$REASON" = "No build needed" ]; then
+              REASON="New packages available"
+            else
+              REASON="$REASON + New packages"
+            fi
           fi
-          
-          # Also check if image is outdated
+
+          # If we want to build, verify repository is accessible
           if [ "$BUILD_IMAGE" = "true" ]; then
-            # Check when last image was built
-            if [ -f .last_build_info ]; then
-              source .last_build_info
-              IMAGE_DATE=${LAST_IMAGE_DATE:-0}
-              CURRENT_EPOCH=$(date +%s)
-              DAYS_SINCE_IMAGE=$(( (CURRENT_EPOCH - IMAGE_DATE) / 86400 ))
-              
-              if [ $DAYS_SINCE_IMAGE -gt 7 ]; then
-                echo "Last image was built $DAYS_SINCE_IMAGE days ago"
-                REASON="$REASON + Weekly rebuild"
-              fi
+            if ! curl -f -s https://raspine.pistar.uk/raspine.rsa.pub > /dev/null 2>&1; then
+              echo "Cannot build - repository not accessible"
+              BUILD_IMAGE=false
+              REASON="Repository not accessible"
+            fi
+          elif [ "$BUILD_IMAGE" = "false" ] && [ "$REASON" = "No build needed" ]; then
+            # No weekly rebuild needed and no new packages - check if repo exists anyway
+            if curl -f -s https://raspine.pistar.uk/raspine.rsa.pub > /dev/null 2>&1; then
+              echo "Repository available but no rebuild trigger"
+            else
+              echo "Repository not accessible"
+              REASON="Repository not ready"
             fi
           fi
         fi
-        
+
         echo "build=$BUILD_IMAGE" >> $GITHUB_OUTPUT
         echo "reason=$REASON" >> $GITHUB_OUTPUT
-        
+
         echo "Image build decision: $BUILD_IMAGE"
         echo "Reason: $REASON"
-        
+
         echo "::endgroup::"
 
   build-image:
