@@ -1,0 +1,133 @@
+# Contributor: MW0MWZ <andy@mw0mwz.co.uk>
+# Maintainer: MW0MWZ <andy@mw0mwz.co.uk>
+pkgname=wiringpi
+# Version will be set dynamically by build script (YYYY.MM.DD format)
+pkgver=2025.01.01
+pkgrel=0
+# Git commit will be captured during build
+_gitcommit="unknown"
+pkgdesc="GPIO access library for Raspberry Pi (WiringPi community fork with Pi 5 support)"
+url="https://github.com/WiringPi/WiringPi"
+arch="armhf aarch64"
+license="LGPL-3.0-or-later"
+makedepends="
+	build-base
+	git
+	linux-headers
+	"
+depends=""
+subpackages="$pkgname-dev"
+source=""
+options="!check"  # No test suite
+giturl="https://github.com/WiringPi/WiringPi.git"
+
+# We'll clone the git repo in prepare() instead of using source
+prepare() {
+	# Clean any existing source
+	rm -rf "$srcdir/WiringPi"
+
+	# Clone the repository
+	msg "Cloning WiringPi from $giturl"
+	git clone "$giturl" "$srcdir/WiringPi"
+	cd "$srcdir/WiringPi"
+
+	# Get the version info
+	local git_version=$(git describe --tags --always)
+	msg "WiringPi git version: $git_version"
+
+	# Read upstream version for SONAME
+	_upver=$(cat VERSION)
+	msg "WiringPi upstream version: $_upver"
+
+	# Apply any patches if needed
+	cd "$srcdir"
+	default_prepare || true
+}
+
+build() {
+	cd "$srcdir/WiringPi"
+
+	# Read upstream version for SONAME suffix
+	local upver=$(cat VERSION)
+
+	# Build wiringPi core library
+	msg "Building wiringPi core library"
+	cd wiringPi
+	make clean || true
+	make \
+		CFLAGS="$CFLAGS -fcommon -fPIC -I." \
+		LDFLAGS="$LDFLAGS" \
+		WIRINGPI_SONAME_SUFFIX=".$upver" \
+		-j $(nproc) \
+		all
+	# Create unversioned symlink so devLib and gpio can link against -lwiringPi
+	ln -sf libwiringPi.so."$upver" libwiringPi.so
+	cd ..
+
+	# Build wiringPiDev device library
+	msg "Building wiringPiDev device library"
+	cd devLib
+	make clean || true
+	make \
+		CFLAGS="$CFLAGS -fcommon -fPIC -I../wiringPi" \
+		LDFLAGS="$LDFLAGS -L../wiringPi" \
+		WIRINGPI_SONAME_SUFFIX=".$upver" \
+		-j $(nproc) \
+		all
+	# Create unversioned symlink so gpio can link against -lwiringPiDev
+	ln -sf libwiringPiDev.so."$upver" libwiringPiDev.so
+	cd ..
+
+	# Build gpio utility
+	msg "Building gpio utility"
+	cd gpio
+	make clean || true
+	make \
+		CFLAGS="$CFLAGS -I../wiringPi -I../devLib" \
+		LDFLAGS="$LDFLAGS -L../wiringPi -L../devLib" \
+		-j $(nproc) \
+		all
+	cd ..
+}
+
+package() {
+	cd "$srcdir/WiringPi"
+
+	# Read upstream version
+	local upver=$(cat VERSION)
+
+	# Install wiringPi core shared library
+	install -Dm755 "wiringPi/libwiringPi.so.$upver" \
+		"$pkgdir"/usr/lib/libwiringPi.so."$upver"
+	ln -sf libwiringPi.so."$upver" "$pkgdir"/usr/lib/libwiringPi.so
+
+	# Install wiringPi headers
+	install -dm755 "$pkgdir"/usr/include
+	install -Dm644 wiringPi/*.h "$pkgdir"/usr/include/
+
+	# Install wiringPiDev shared library
+	install -Dm755 "devLib/libwiringPiDev.so.$upver" \
+		"$pkgdir"/usr/lib/libwiringPiDev.so."$upver"
+	ln -sf libwiringPiDev.so."$upver" "$pkgdir"/usr/lib/libwiringPiDev.so
+
+	# Install wiringPiDev headers
+	install -Dm644 devLib/*.h "$pkgdir"/usr/include/
+
+	# Install gpio utility
+	install -Dm755 gpio/gpio "$pkgdir"/usr/bin/gpio
+
+	# Install pinout utility if present
+	if [ -f gpio/pinout ]; then
+		install -Dm755 gpio/pinout "$pkgdir"/usr/bin/pinout
+	fi
+
+	# Install license
+	mkdir -p "$pkgdir"/usr/share/licenses/$pkgname
+	if [ -f COPYING.LESSER ]; then
+		install -Dm644 COPYING.LESSER "$pkgdir"/usr/share/licenses/$pkgname/COPYING.LESSER
+	fi
+}
+
+dev() {
+	default_dev
+}
