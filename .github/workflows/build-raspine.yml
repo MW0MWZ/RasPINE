@@ -256,6 +256,7 @@ jobs:
         rc-update add bootmisc boot
         rc-update add syslog boot
         rc-update add dropbear default
+        rc-update add networking boot
         rc-update add wpa_supplicant boot
         rc-update add dhcpcd boot
         
