@@ -196,12 +196,12 @@ jobs:
         echo "Adding RasPINE repository key..."
         wget -O /etc/apk/keys/raspine.rsa.pub https://raspine.pistar.uk/raspine.rsa.pub
         
-        # Set up Alpine repositories including RasPINE repo
+        # Set up Alpine repositories with RasPINE repo first (highest priority)
         echo "Setting up Alpine ${ALPINE_VERSION} repositories with RasPINE..."
         cat > /etc/apk/repositories << REPOS
+        https://raspine.pistar.uk/v${ALPINE_VERSION}/community
         https://dl-cdn.alpinelinux.org/alpine/v${ALPINE_VERSION}/main
         https://dl-cdn.alpinelinux.org/alpine/v${ALPINE_VERSION}/community
-        https://raspine.pistar.uk/v${ALPINE_VERSION}/community
         REPOS
         
         # Update package index
