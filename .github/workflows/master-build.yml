@@ -163,97 +163,6 @@ jobs:
         
         echo "::endgroup::"
 
-  check-source-updates:
-    name: Check for Source Package Updates
-    runs-on: ubuntu-latest
-    outputs:
-      needs_source_update: ${{ steps.check.outputs.needs_update }}
-
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-
-    - name: Check for upstream source package updates
-      id: check
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      run: |
-        set -e
-
-        echo "::group::Checking source package upstreams"
-
-        # Check if force update requested
-        if [ "${{ github.event.inputs.force_package_update }}" = "true" ]; then
-          echo "Force package update requested"
-          echo "needs_update=true" >> $GITHUB_OUTPUT
-          echo "::endgroup::"
-          exit 0
-        fi
-
-        # Skip if packages are being skipped
-        if [ "${{ github.event.inputs.skip_packages }}" = "true" ]; then
-          echo "Package updates skipped by user"
-          echo "needs_update=false" >> $GITHUB_OUTPUT
-          echo "::endgroup::"
-          exit 0
-        fi
-
-        NEEDS_UPDATE=false
-
-        # Check each package in packages/ that has a giturl
-        for apkbuild in packages/*/APKBUILD; do
-          [ -f "$apkbuild" ] || continue
-
-          PACKAGE=$(basename "$(dirname "$apkbuild")")
-          GITURL=$(grep "^giturl=" "$apkbuild" | head -1 | cut -d'"' -f2)
-
-          if [ -z "$GITURL" ]; then
-            continue
-          fi
-
-          # Get stored commit
-          CURRENT_COMMIT=$(grep "^_gitcommit=" "$apkbuild" | cut -d'"' -f2)
-
-          # Get latest commit from GitHub API
-          REPO_PATH=$(echo "$GITURL" | sed 's|.*github.com/||' | sed 's|\.git$||')
-
-          LATEST_COMMIT=""
-          for branch in main master; do
-            LATEST_COMMIT=$(curl -s -H "Accept: application/vnd.github.v3+json" \
-              -H "Authorization: token ${GITHUB_TOKEN}" \
-              "https://api.github.com/repos/${REPO_PATH}/commits/${branch}" | \
-              grep '"sha"' | head -1 | cut -d'"' -f4 | cut -c1-7)
-
-            if [ -n "$LATEST_COMMIT" ]; then
-              break
-            fi
-          done
-
-          if [ -z "$LATEST_COMMIT" ]; then
-            echo "Could not fetch latest commit for $PACKAGE"
-            continue
-          fi
-
-          echo "$PACKAGE: current=${CURRENT_COMMIT:-unknown} latest=$LATEST_COMMIT"
-
-          if [ "$CURRENT_COMMIT" != "$LATEST_COMMIT" ]; then
-            echo "  -> UPDATE AVAILABLE"
-            NEEDS_UPDATE=true
-          else
-            echo "  -> Up to date"
-          fi
-        done
-
-        echo "needs_update=$NEEDS_UPDATE" >> $GITHUB_OUTPUT
-
-        if [ "$NEEDS_UPDATE" = "true" ]; then
-          echo "Source package updates needed!"
-        else
-          echo "Source packages are up to date"
-        fi
-
-        echo "::endgroup::"
-
   build-packages:
     name: Build and Deploy APK Packages
     needs: check-upstream
@@ -337,102 +246,9 @@ jobs:
         
         echo "::endgroup::"
 
-  build-source-packages:
-    name: Build and Deploy Source Packages
-    needs: [check-source-updates, wait-for-repository, build-packages]
-    if: |
-      always() &&
-      (needs.check-source-updates.outputs.needs_source_update == 'true' || github.event.inputs.force_package_update == 'true') &&
-      github.event.inputs.skip_packages != 'true' &&
-      (needs.wait-for-repository.result == 'success' || needs.wait-for-repository.result == 'skipped') &&
-      (needs.build-packages.result == 'success' || needs.build-packages.result == 'skipped')
-    uses: ./.github/workflows/build-source-packages.yml
-    with:
-      package: 'all'
-      alpine_version: 'all'
-    secrets: inherit
-
-  update-source-commits:
-    name: Update Source Package Commits
-    needs: build-source-packages
-    if: |
-      always() &&
-      needs.build-source-packages.result == 'success'
-    runs-on: ubuntu-latest
-
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Update _gitcommit in APKBUILDs
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      run: |
-        set -e
-
-        echo "::group::Updating source package commit hashes"
-
-        UPDATED=""
-
-        for apkbuild in packages/*/APKBUILD; do
-          [ -f "$apkbuild" ] || continue
-
-          PACKAGE=$(basename "$(dirname "$apkbuild")")
-          GITURL=$(grep "^giturl=" "$apkbuild" | head -1 | cut -d'"' -f2)
-
-          if [ -z "$GITURL" ]; then
-            continue
-          fi
-
-          # Get latest commit from GitHub API
-          REPO_PATH=$(echo "$GITURL" | sed 's|.*github.com/||' | sed 's|\.git$||')
-
-          LATEST_COMMIT=""
-          for branch in main master; do
-            LATEST_COMMIT=$(curl -s -H "Accept: application/vnd.github.v3+json" \
-              -H "Authorization: token ${GITHUB_TOKEN}" \
-              "https://api.github.com/repos/${REPO_PATH}/commits/${branch}" | \
-              grep '"sha"' | head -1 | cut -d'"' -f4 | cut -c1-7)
-
-            if [ -n "$LATEST_COMMIT" ]; then
-              break
-            fi
-          done
-
-          if [ -z "$LATEST_COMMIT" ]; then
-            echo "Could not fetch latest commit for $PACKAGE, skipping"
-            continue
-          fi
-
-          CURRENT_COMMIT=$(grep "^_gitcommit=" "$apkbuild" | cut -d'"' -f2)
-
-          if [ "$CURRENT_COMMIT" != "$LATEST_COMMIT" ]; then
-            echo "Updating $PACKAGE: $CURRENT_COMMIT -> $LATEST_COMMIT"
-            sed -i "s/^_gitcommit=.*/_gitcommit=\"${LATEST_COMMIT}\"/" "$apkbuild"
-            UPDATED="$UPDATED $PACKAGE"
-          fi
-        done
-
-        if [ -n "$UPDATED" ]; then
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-          git add packages/*/APKBUILD
-          git commit -m "Update source package commits [skip ci]" || echo "No changes to commit"
-          git push || echo "No changes to push"
-
-          echo "Updated:$UPDATED"
-        else
-          echo "No source package commits to update"
-        fi
-
-        echo "::endgroup::"
-
   check-image-needed:
     name: Check if Image Build Needed
-    needs: [check-upstream, build-packages, wait-for-repository, build-source-packages]
+    needs: [check-upstream, build-packages, wait-for-repository]
     if: always()
     runs-on: ubuntu-latest
     outputs:
@@ -608,7 +424,7 @@ jobs:
 
   update-build-info:
     name: Update Build Information
-    needs: [check-upstream, build-packages, build-source-packages, build-image]
+    needs: [check-upstream, build-packages, build-image]
     if: always()
     runs-on: ubuntu-latest
     
@@ -688,7 +504,7 @@ jobs:
 
   final-summary:
     name: Build Summary
-    needs: [check-upstream, build-packages, build-source-packages, build-image, create-release]
+    needs: [check-upstream, build-packages, build-image, create-release]
     if: always()
     runs-on: ubuntu-latest
 
@@ -698,26 +514,15 @@ jobs:
         echo "# 🏔️ RasPINE Build Pipeline Summary" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
 
-        # Kernel package status
-        echo "## 📦 Kernel Package Build" >> $GITHUB_STEP_SUMMARY
+        # Package status
+        echo "## 📦 Package Build" >> $GITHUB_STEP_SUMMARY
         if [ "${{ needs.build-packages.result }}" = "success" ]; then
-          echo "✅ Kernel packages built and deployed successfully" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Packages built and deployed successfully" >> $GITHUB_STEP_SUMMARY
           echo "- Kernel version: ${{ needs.check-upstream.outputs.kernel_version }}" >> $GITHUB_STEP_SUMMARY
         elif [ "${{ needs.build-packages.result }}" = "skipped" ]; then
-          echo "⏭️ Kernel package build skipped (not needed or disabled)" >> $GITHUB_STEP_SUMMARY
+          echo "⏭️ Package build skipped (not needed or disabled)" >> $GITHUB_STEP_SUMMARY
         else
-          echo "❌ Kernel package build failed or incomplete" >> $GITHUB_STEP_SUMMARY
-        fi
-        echo "" >> $GITHUB_STEP_SUMMARY
-
-        # Source package status
-        echo "## 🔧 Source Package Build" >> $GITHUB_STEP_SUMMARY
-        if [ "${{ needs.build-source-packages.result }}" = "success" ]; then
-          echo "✅ Source packages built and deployed successfully" >> $GITHUB_STEP_SUMMARY
-        elif [ "${{ needs.build-source-packages.result }}" = "skipped" ]; then
-          echo "⏭️ Source package build skipped (not needed or disabled)" >> $GITHUB_STEP_SUMMARY
-        else
-          echo "❌ Source package build failed or incomplete" >> $GITHUB_STEP_SUMMARY
+          echo "❌ Package build failed or incomplete" >> $GITHUB_STEP_SUMMARY
         fi
         echo "" >> $GITHUB_STEP_SUMMARY
         

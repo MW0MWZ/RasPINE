@@ -46,15 +46,16 @@ After all matrix jobs, the **deploy** job:
 - Regenerates signed `APKINDEX.tar.gz` and `packages.json`
 - Force-pushes to `gh-pages` and optionally purges Cloudflare cache
 
-### Source Package Build (`build-source-packages.yml`)
+### Source Package Pipeline (`check-source-updates.yml` + `build-source-packages.yml`)
 
-Builds packages from upstream source code (e.g., WiringPi GPIO library). APKBUILDs live in `packages/<name>/APKBUILD` with a `giturl=` field pointing to the upstream repo. ARM-only matrix (armhf, aarch64) — no x86_64.
+Independent from the master pipeline. Builds packages from upstream source code (e.g., WiringPi GPIO library). `check-source-updates.yml` runs twice daily (6 AM/6 PM UTC), compares `_gitcommit` in each APKBUILD against upstream HEAD via GitHub API, and triggers `build-source-packages.yml` only when a new upstream commit is detected.
 
+- ARM-only matrix (armhf, aarch64) — no x86_64
 - Clones upstream repo, uses commit date as `pkgver` (YYYY.MM.DD format)
 - Checks existing packages across all arches/versions to determine `pkgrel`
 - Builds in Docker Alpine containers with QEMU, signs with `raspine.rsa` key
 - Deploy job merges into existing gh-pages content and regenerates APKINDEX for all packages
-- `_gitcommit` in each APKBUILD tracks the last-built upstream commit hash (updated by `master-build.yml` after successful builds)
+- APKBUILDs live in `packages/<name>/APKBUILD` with `giturl=` pointing to upstream and `_gitcommit=` tracking the last-built commit hash
 
 ### Image Build (`build-raspine.yml`)
 
@@ -78,7 +79,7 @@ Runs on `ubuntu-24.04` with QEMU ARM emulation. Creates a 2GB raw image, install
 - `packages/raspios-firmware/` — Template APKBUILD, `config.txt`, `cmdline.txt`, `VERSION` for firmware package
 - `packages/wiringpi/` — WiringPi GPIO library APKBUILD (built from upstream source)
 - `keys/raspine.rsa.pub` — Public key for APK package signing (private key in GitHub secrets)
-- `.github/workflows/` — Four workflow files forming the CI pipeline
+- `.github/workflows/` — Five workflow files (master pipeline, kernel packages, source package check, source package build, image build)
 - `index.html` — Static landing page served via GitHub Pages at raspine.pistar.uk
 - `.last_build_info` — Tracks last kernel version, build dates (auto-committed by CI)
 
