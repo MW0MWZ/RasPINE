@@ -353,11 +353,12 @@ jobs:
               cd "$dir"
 
               # Clean source package types (keep only newest by timestamp)
+              # Use [0-9] anchor so "wiringpi-" doesn't also match "wiringpi-dev-"
               for prefix in wiringpi wiringpi-dev; do
-                NEWEST=$(ls -t ${prefix}-*.apk 2>/dev/null | head -1)
+                NEWEST=$(ls -t ${prefix}-[0-9]*.apk 2>/dev/null | head -1)
 
                 if [ -n "$NEWEST" ]; then
-                  ls ${prefix}-*.apk 2>/dev/null | grep -v "^${NEWEST}$" | while read OLD; do
+                  ls ${prefix}-[0-9]*.apk 2>/dev/null | grep -v "^${NEWEST}$" | while read OLD; do
                     echo "  Removing: $OLD"
                     rm -f "$OLD"
                   done
@@ -414,11 +415,12 @@ jobs:
               cd "$dir"
 
               # Clean all known package prefixes (kernel packages + source packages)
+              # Use [0-9] anchor so e.g. "wiringpi-" doesn't also match "wiringpi-dev-"
               for prefix in raspios-kernel-v6 raspios-kernel-v7 raspios-kernel-v8 raspios-firmware raspios-kernel-headers-common raspios-bootloader wiringpi wiringpi-dev; do
-                NEWEST=$(ls -t ${prefix}-*.apk 2>/dev/null | head -1)
+                NEWEST=$(ls -t ${prefix}-[0-9]*.apk 2>/dev/null | head -1)
 
                 if [ -n "$NEWEST" ]; then
-                  ls ${prefix}-*.apk 2>/dev/null | grep -v "^${NEWEST}$" | xargs -r rm -f
+                  ls ${prefix}-[0-9]*.apk 2>/dev/null | grep -v "^${NEWEST}$" | xargs -r rm -f
                 fi
               done
             )
