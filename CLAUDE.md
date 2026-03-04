@@ -48,7 +48,7 @@ After all matrix jobs, the **deploy** job:
 
 ### Source Package Pipeline (`check-source-updates.yml` + `build-source-packages.yml`)
 
-Independent from the master pipeline. Builds packages from upstream source code (e.g., WiringPi GPIO library). `check-source-updates.yml` runs twice daily (6 AM/6 PM UTC), compares `_gitcommit` in each APKBUILD against upstream HEAD via GitHub API, and triggers `build-source-packages.yml` only when a new upstream commit is detected.
+Independent from the master pipeline. Builds packages from upstream source code (e.g., WiringPi GPIO library). `check-source-updates.yml` runs weekly (Monday 4 AM UTC, after master pipeline), compares `_gitcommit` in each APKBUILD against upstream HEAD via GitHub API, and triggers `build-source-packages.yml` only when a new upstream commit is detected.
 
 - ARM-only matrix (armhf, aarch64) — no x86_64
 - Clones upstream repo, uses commit date as `pkgver` (YYYY.MM.DD format)

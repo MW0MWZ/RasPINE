@@ -2,7 +2,7 @@ name: Check Source Package Updates
 
 on:
   schedule:
-    - cron: '0 6,18 * * *'  # Twice daily at 6 AM and 6 PM UTC
+    - cron: '0 4 * * 1'  # Weekly on Monday at 4 AM UTC (after master pipeline at 2 AM)
   workflow_dispatch:
     inputs:
       force_build:
