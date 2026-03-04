@@ -152,9 +152,15 @@ jobs:
             git clone --depth 50 "$GITURL" "$TEMP_DIR/repo"
             cd "$TEMP_DIR/repo"
             GIT_COMMIT=$(git rev-parse --short HEAD)
-            COMMIT_DATE=$(git show -s --format=%cd --date=format:'%Y.%m.%d' HEAD)
+            # Use VERSION file if present, otherwise fall back to commit date
+            if [ -f VERSION ]; then
+              PKG_VERSION=$(cat VERSION | tr -d '[:space:]')
+              echo "Using upstream VERSION: $PKG_VERSION"
+            else
+              PKG_VERSION=$(git show -s --format=%cd --date=format:'%Y.%m.%d' HEAD)
+              echo "No VERSION file, using commit date: $PKG_VERSION"
+            fi
             cd - > /dev/null
-            PKG_VERSION="${COMMIT_DATE}"
 
             # Determine release number by checking ALL architectures and Alpine versions
             PKG_RELEASE="0"
