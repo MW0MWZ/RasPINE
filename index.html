@@ -1,0 +1,1188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RasPINE - Raspberry Pi + Alpine Linux Hybrid OS</title>
+    <meta name="description" content="RasPINE combines Raspberry Pi OS kernel with Alpine Linux userland for a minimal, efficient operating system">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --alpine-blue: #2c5f7c;
+            --alpine-light-blue: #4a8fb9;
+            --alpine-dark: #1a1a1a;
+            --alpine-gray: #4a5568;
+            --text-light: #e2e8f0;
+            --bg-dark: #0f1419;
+            --bg-card: #1a202c;
+            --border-color: #2d3748;
+            --success: #5a8a3c;
+            --warning: #ed8936;
+            --info: #4299e1;
+            --code-bg: #2d3748;
+            --raspberry: #c51a4a;
+            --raspberry-dark: #8b1538;
+            --raspberry-light: #e91e63;
+            --leaf-green: #5a8a3c;
+            --leaf-green-dark: #3d5c28;
+            --mountain-blue: #4a8fb9;
+            --mountain-dark: #2c5f7c;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, var(--bg-dark) 0%, #1a202c 100%);
+            color: var(--text-light);
+            min-height: 100vh;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        header {
+            text-align: center;
+            padding: 80px 20px;
+            background: linear-gradient(135deg, var(--mountain-dark) 0%, var(--raspberry-dark) 50%, var(--leaf-green-dark) 100%);
+            border-radius: 20px;
+            margin-bottom: 40px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+            position: relative;
+            overflow: hidden;
+        }
+
+        header::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -10%;
+            width: 120%;
+            height: 200%;
+            background: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 600"><path fill="rgba(255,255,255,0.03)" d="M0 400L200 200L400 350L600 150L800 300L1000 100L1200 250V600H0V400Z"/><path fill="rgba(255,255,255,0.05)" d="M0 450L300 250L500 400L700 200L900 350L1100 150L1200 300V600H0V450Z"/></svg>') no-repeat center;
+            background-size: cover;
+            animation: float 20s ease-in-out infinite;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translateX(0) translateY(0); }
+            25% { transform: translateX(-20px) translateY(-10px); }
+            50% { transform: translateX(20px) translateY(5px); }
+            75% { transform: translateX(-10px) translateY(-5px); }
+        }
+
+        .header-content {
+            position: relative;
+            z-index: 2;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 40px;
+        }
+
+        .logo-container {
+            filter: drop-shadow(0 15px 30px rgba(0,0,0,0.4));
+            animation: float-logo 3s ease-in-out infinite;
+        }
+
+        .raspine-logo {
+            width: 150px;
+            height: 193px;
+            display: block;
+            object-fit: contain;
+        }
+
+        @keyframes float-logo {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+        }
+
+        .header-text {
+            text-align: left;
+        }
+
+        h1 {
+            font-size: 3.5em;
+            margin-bottom: 10px;
+            font-weight: 700;
+            text-shadow: 2px 4px 8px rgba(0,0,0,0.3);
+            position: relative;
+            z-index: 1;
+            letter-spacing: -1px;
+            background: linear-gradient(to right, #ffffff, #e0f2ff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .subtitle {
+            font-size: 1.4em;
+            opacity: 0.95;
+            position: relative;
+            z-index: 1;
+            text-shadow: 1px 2px 4px rgba(0,0,0,0.2);
+            color: #e0f2ff;
+        }
+
+        .hybrid-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(255,255,255,0.15);
+            backdrop-filter: blur(10px);
+            padding: 8px 16px;
+            border-radius: 25px;
+            margin-top: 20px;
+            border: 1px solid rgba(255,255,255,0.2);
+            font-size: 0.9em;
+            font-weight: 500;
+            letter-spacing: 0.5px;
+            animation: glow-border 3s ease-in-out infinite;
+        }
+
+        @keyframes glow-border {
+            0%, 100% { border-color: rgba(255,255,255,0.2); box-shadow: 0 0 10px rgba(255,255,255,0.1); }
+            50% { border-color: rgba(255,255,255,0.4); box-shadow: 0 0 20px rgba(255,255,255,0.2); }
+        }
+
+        .status-bar {
+            background: var(--bg-card);
+            border-radius: 15px;
+            padding: 20px;
+            margin: 20px 0;
+            border: 1px solid var(--border-color);
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 15px;
+            background: rgba(74, 143, 185, 0.1);
+            border: 1px solid rgba(74, 143, 185, 0.3);
+            border-radius: 20px;
+            font-size: 0.9em;
+            transition: all 0.3s ease;
+        }
+
+        .status-badge:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(74, 143, 185, 0.2);
+        }
+
+        .status-badge.success {
+            background: rgba(90, 138, 60, 0.1);
+            border-color: rgba(90, 138, 60, 0.3);
+        }
+
+        .status-badge.info {
+            background: rgba(66, 153, 225, 0.1);
+            border-color: rgba(66, 153, 225, 0.3);
+        }
+
+        .status-badge a {
+            color: var(--text-light);
+            text-decoration: none;
+        }
+
+        .download-section {
+            background: linear-gradient(135deg, rgba(44, 95, 124, 0.2) 0%, rgba(139, 21, 56, 0.2) 50%, rgba(90, 138, 60, 0.2) 100%);
+            border-radius: 15px;
+            padding: 40px;
+            margin: 40px 0;
+            border: 1px solid var(--mountain-blue);
+            text-align: center;
+        }
+
+        .download-buttons {
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+            flex-wrap: wrap;
+            margin: 30px 0;
+        }
+
+        .download-btn {
+            background: var(--leaf-green);
+            color: white;
+            padding: 15px 30px;
+            border-radius: 10px;
+            text-decoration: none;
+            font-size: 1.1em;
+            font-weight: 600;
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            transition: all 0.3s ease;
+            box-shadow: 0 5px 15px rgba(90, 138, 60, 0.3);
+        }
+
+        .download-btn:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 25px rgba(90, 138, 60, 0.4);
+            background: var(--success);
+        }
+
+        .download-btn.secondary {
+            background: var(--mountain-dark);
+            box-shadow: 0 5px 15px rgba(44, 95, 124, 0.3);
+        }
+
+        .download-btn.secondary:hover {
+            box-shadow: 0 8px 25px rgba(44, 95, 124, 0.4);
+            background: var(--mountain-blue);
+        }
+
+        .download-info {
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+            flex-wrap: wrap;
+            margin-top: 20px;
+        }
+
+        .download-stat {
+            background: var(--bg-card);
+            padding: 15px 25px;
+            border-radius: 10px;
+            border: 1px solid var(--border-color);
+        }
+
+        .download-stat-value {
+            font-size: 1.5em;
+            font-weight: bold;
+            color: var(--mountain-blue);
+        }
+
+        .download-stat-label {
+            font-size: 0.9em;
+            opacity: 0.8;
+            margin-top: 5px;
+        }
+
+        .section-title {
+            font-size: 2em;
+            color: var(--mountain-blue);
+            margin: 40px 0 20px 0;
+            padding-bottom: 10px;
+            border-bottom: 2px solid var(--border-color);
+        }
+
+        .cards-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 25px;
+            margin-bottom: 40px;
+        }
+
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 20px;
+            margin-bottom: 40px;
+        }
+
+        .card {
+            background: var(--bg-card);
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            border: 1px solid var(--border-color);
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, var(--mountain-blue), var(--raspberry), var(--leaf-green));
+            transform: scaleX(0);
+            transition: transform 0.3s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 40px rgba(0,0,0,0.4);
+            border-color: var(--mountain-blue);
+        }
+
+        .card:hover::before {
+            transform: scaleX(1);
+        }
+
+        .feature-card {
+            background: var(--bg-card);
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 8px 25px rgba(0,0,0,0.3);
+            border: 1px solid var(--border-color);
+            transition: all 0.3s ease;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .feature-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 12px 35px rgba(0,0,0,0.4);
+        }
+
+        .feature-icon {
+            font-size: 2em;
+            margin-bottom: 10px;
+        }
+
+        .feature-title {
+            font-size: 1.2em;
+            font-weight: 600;
+            color: var(--mountain-blue);
+            margin-bottom: 8px;
+        }
+
+        .feature-desc {
+            color: var(--text-light);
+            opacity: 0.9;
+            font-size: 0.95em;
+            line-height: 1.5;
+        }
+
+        .card h2 {
+            color: var(--mountain-blue);
+            margin-bottom: 20px;
+            font-size: 1.8em;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .icon {
+            width: 30px;
+            height: 30px;
+            display: inline-block;
+        }
+
+        .code-block {
+            background: var(--code-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 20px;
+            margin: 15px 0;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 0.9em;
+            overflow-x: auto;
+            position: relative;
+            line-height: 1.5;
+        }
+
+        .code-block:hover {
+            border-color: var(--mountain-blue);
+        }
+
+        .copy-button {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: var(--mountain-dark);
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 0.85em;
+            transition: all 0.3s ease;
+            opacity: 0.7;
+        }
+
+        .copy-button:hover {
+            opacity: 1;
+            background: var(--mountain-blue);
+            transform: scale(1.05);
+        }
+
+        .compatibility-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+
+        .pi-model {
+            background: var(--bg-card);
+            padding: 15px;
+            border-radius: 10px;
+            border: 1px solid var(--border-color);
+            text-align: center;
+            transition: all 0.3s ease;
+        }
+
+        .pi-model:hover {
+            border-color: var(--raspberry);
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(197, 26, 74, 0.2);
+        }
+
+        .pi-model-name {
+            font-weight: 600;
+            color: var(--raspberry);
+            margin-bottom: 5px;
+        }
+
+        .pi-model-desc {
+            font-size: 0.85em;
+            opacity: 0.8;
+        }
+
+        .quick-start {
+            background: linear-gradient(135deg, rgba(44, 95, 124, 0.2) 0%, rgba(74, 143, 185, 0.2) 100%);
+            border-radius: 15px;
+            padding: 30px;
+            margin: 40px 0;
+            border: 1px solid var(--mountain-blue);
+        }
+
+        .quick-start h2 {
+            color: var(--mountain-blue);
+            margin-bottom: 20px;
+            font-size: 2em;
+        }
+
+        .step {
+            display: flex;
+            align-items: flex-start;
+            margin: 20px 0;
+            gap: 15px;
+        }
+
+        .step-number {
+            background: var(--mountain-dark);
+            color: white;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            flex-shrink: 0;
+        }
+
+        .step-content {
+            flex: 1;
+        }
+
+        .boot-config-section {
+            background: linear-gradient(135deg, rgba(90, 138, 60, 0.2) 0%, rgba(44, 95, 124, 0.2) 100%);
+            border-radius: 15px;
+            padding: 30px;
+            margin: 40px 0;
+            border: 1px solid var(--leaf-green);
+        }
+
+        .boot-config-section h2 {
+            color: var(--leaf-green);
+            margin-bottom: 20px;
+            font-size: 2em;
+        }
+
+        .config-feature {
+            background: var(--bg-card);
+            border-radius: 10px;
+            padding: 15px 20px;
+            margin: 10px 0;
+            border-left: 4px solid var(--leaf-green);
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .config-icon {
+            font-size: 1.5em;
+            flex-shrink: 0;
+        }
+
+        .config-content {
+            flex: 1;
+        }
+
+        .config-title {
+            font-weight: 600;
+            color: var(--mountain-blue);
+            margin-bottom: 5px;
+        }
+
+        .config-desc {
+            font-size: 0.9em;
+            opacity: 0.9;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+        .stat-item {
+            text-align: center;
+            padding: 15px;
+            background: rgba(74, 143, 185, 0.1);
+            border-radius: 10px;
+            border: 1px solid rgba(74, 143, 185, 0.3);
+        }
+
+        .stat-number {
+            font-size: 2em;
+            font-weight: bold;
+            color: var(--mountain-blue);
+        }
+
+        .stat-label {
+            font-size: 0.9em;
+            opacity: 0.8;
+            margin-top: 5px;
+        }
+
+        .badge {
+            background: var(--mountain-dark);
+            color: white;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 0.85em;
+            font-weight: 500;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            transition: all 0.3s ease;
+            margin: 5px;
+        }
+
+        .badge.raspberry {
+            background: var(--raspberry);
+        }
+
+        .badge.alpine {
+            background: var(--mountain-blue);
+        }
+
+        .tech-specs {
+            background: var(--bg-card);
+            border-radius: 15px;
+            padding: 30px;
+            margin: 40px 0;
+            border: 1px solid var(--border-color);
+        }
+
+        .specs-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+
+        .specs-table tr {
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .specs-table td {
+            padding: 15px;
+        }
+
+        .specs-table td:first-child {
+            font-weight: 600;
+            color: var(--mountain-blue);
+            width: 30%;
+        }
+
+        footer {
+            text-align: center;
+            padding: 40px 20px;
+            margin-top: 60px;
+            border-top: 1px solid var(--border-color);
+            opacity: 0.8;
+        }
+
+        footer a {
+            color: var(--mountain-blue);
+            text-decoration: none;
+            transition: all 0.3s ease;
+        }
+
+        footer a:hover {
+            color: white;
+            text-decoration: underline;
+        }
+
+        @media (max-width: 768px) {
+            h1 {
+                font-size: 2em;
+            }
+            
+            .cards-grid, .feature-grid {
+                grid-template-columns: 1fr;
+            }
+
+            header {
+                padding: 60px 20px;
+            }
+
+            .header-content {
+                flex-direction: column;
+                text-align: center;
+            }
+
+            .header-text {
+                text-align: center;
+            }
+
+            .raspine-logo {
+                width: 120px;
+                height: 154px;
+                object-fit: contain;
+            }
+
+            .logo-container {
+                flex-direction: column;
+            }
+
+            .status-bar {
+                flex-direction: column;
+                align-items: stretch;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="header-content">
+                <div class="logo-container">
+                    <img src="/raspine-logo.png" alt="RasPINE Logo" class="raspine-logo">
+                </div>
+                <div class="header-text">
+                    <h1>RasPINE</h1>
+                    <p class="subtitle">Raspberry Pi OS Kernel + Alpine Linux Userland</p>
+                    <div class="hybrid-badge">
+                        <span>🏔️ + 🥧</span>
+                        <span>The Perfect Hybrid OS</span>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <div class="status-bar">
+            <div class="status-badge success">
+                <span>✅</span>
+                <a href="https://github.com/MW0MWZ/RasPINE/actions/workflows/master-build.yml">
+                    Build Passing
+                </a>
+            </div>
+            <div class="status-badge info">
+                <span>📦</span>
+                <a href="https://github.com/MW0MWZ/RasPINE/releases/latest">
+                    Latest Release
+                </a>
+            </div>
+            <div class="status-badge">
+                <span>⬇️</span>
+                <span id="download-count">Loading...</span> Downloads
+            </div>
+            <div class="status-badge">
+                <span>🏔️</span>
+                Alpine v3.22
+            </div>
+            <div class="status-badge">
+                <span>🐧</span>
+                <span id="kernel-version">Latest Kernel</span>
+            </div>
+        </div>
+
+        <div class="download-section">
+            <h2 style="color: var(--mountain-blue); font-size: 2em; margin-bottom: 10px;">📥 Download RasPINE</h2>
+            <p style="opacity: 0.9; margin-bottom: 30px;">Get the latest hybrid OS image for your Raspberry Pi</p>
+            
+            <div class="download-buttons">
+                <a href="/downloads/RasPINE-latest.img.xz.html" class="download-btn">
+                    <svg width="20" height="20" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z"/>
+                    </svg>
+                    Download Latest Image
+                </a>
+                <a href="https://github.com/MW0MWZ/RasPINE/releases" class="download-btn secondary">
+                    <svg width="20" height="20" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z"/>
+                        <path fill-rule="evenodd" d="M4 5a2 2 0 012-2 1 1 0 000 2H6a2 2 0 100 4h2a2 2 0 100 4H6a2 2 0 00-2 2v1a2 2 0 002 2h8a2 2 0 002-2v-1a2 2 0 00-2-2h-2a2 2 0 100-4h2a2 2 0 100-4h-2a2 2 0 00-2-2z"/>
+                    </svg>
+                    View All Releases
+                </a>
+            </div>
+
+            <div class="download-info">
+                <div class="download-stat">
+                    <div class="download-stat-value" id="latest-date">Loading...</div>
+                    <div class="download-stat-label">Latest Build</div>
+                </div>
+                <div class="download-stat">
+                    <div class="download-stat-value" id="image-size">~300MB</div>
+                    <div class="download-stat-label">Download Size</div>
+                </div>
+                <div class="download-stat">
+                    <div class="download-stat-value">2GB</div>
+                    <div class="download-stat-label">Min SD Card</div>
+                </div>
+                <div class="download-stat">
+                    <div class="download-stat-value">v3.22</div>
+                    <div class="download-stat-label">Alpine Version</div>
+                </div>
+            </div>
+
+            <p style="margin-top: 20px; opacity: 0.8;">
+                <a href="/downloads/RasPINE-latest.img.xz.sha256" style="color: var(--mountain-blue);">SHA256 Checksum</a> | 
+                <a href="/downloads/RasPINE-latest.info.txt" style="color: var(--mountain-blue);">Build Info</a>
+            </p>
+        </div>
+
+        <div class="cards-grid">
+            <div class="card">
+                <h2>
+                    <svg class="icon" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M10 2a8 8 0 100 16 8 8 0 000-16zM8 12l-2-2 1-1 1 1 3-3 1 1-4 4z"/>
+                    </svg>
+                    Why RasPINE?
+                </h2>
+                <p style="margin-bottom: 20px;">
+                    RasPINE gives you the best of both worlds - perfect Raspberry Pi hardware support with Alpine's minimal footprint.
+                </p>
+                <div class="stats-grid">
+                    <div class="stat-item">
+                        <div class="stat-number">100%</div>
+                        <div class="stat-label">Pi Compatible</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-number">2GB</div>
+                        <div class="stat-label">SD Card Size</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-number">&lt;50MB</div>
+                        <div class="stat-label">RAM Usage</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-number">15s</div>
+                        <div class="stat-label">Boot Time</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>
+                    <svg class="icon" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M13 7H7v6h6V7z"/>
+                        <path d="M7 2a1 1 0 000 2h6a1 1 0 100-2H7zM7 16a1 1 0 100 2h6a1 1 0 100-2H7z"/>
+                        <path fill-rule="evenodd" d="M3 5a2 2 0 012-2h10a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2V5zm2 0h10v10H5V5z"/>
+                    </svg>
+                    What's Included
+                </h2>
+                <div style="display: flex; flex-direction: column; gap: 10px;">
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <span class="badge raspberry">RasPi OS</span>
+                        <span style="opacity: 0.8;">Latest kernel & firmware</span>
+                    </div>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <span class="badge alpine">Alpine</span>
+                        <span style="opacity: 0.8;">v3.22 userland with musl libc</span>
+                    </div>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <span class="badge">OpenRC</span>
+                        <span style="opacity: 0.8;">Fast init system</span>
+                    </div>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <span class="badge">APK</span>
+                        <span style="opacity: 0.8;">Package manager</span>
+                    </div>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <span class="badge">Dropbear</span>
+                        <span style="opacity: 0.8;">SSH server</span>
+                    </div>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <span class="badge">Network</span>
+                        <span style="opacity: 0.8;">DHCP + WiFi ready</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <h2 class="section-title">✨ Key Features</h2>
+        <div class="feature-grid">
+            <div class="feature-card">
+                <div class="feature-icon">🔧</div>
+                <div class="feature-title">Maximum Compatibility</div>
+                <div class="feature-desc">
+                    Uses official Raspberry Pi OS kernel and firmware for perfect hardware support across all Pi models.
+                </div>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">🪶</div>
+                <div class="feature-title">Minimal Footprint</div>
+                <div class="feature-desc">
+                    Alpine Linux userland with musl libc keeps the system lean - runs on just 2GB SD cards.
+                </div>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">🔒</div>
+                <div class="feature-title">Secure by Default</div>
+                <div class="feature-desc">
+                    Minimal attack surface with only essential services. SSH via Dropbear for secure remote access.
+                </div>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">📦</div>
+                <div class="feature-title">APK Package Manager</div>
+                <div class="feature-desc">
+                    Access to Alpine's vast repository plus custom Raspberry Pi OS kernel packages.
+                </div>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">🌐</div>
+                <div class="feature-title">Network Ready</div>
+                <div class="feature-desc">
+                    Automatic DHCP on ethernet, built-in WiFi support with wpa_supplicant configuration.
+                </div>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">💾</div>
+                <div class="feature-title">SD Card Friendly</div>
+                <div class="feature-desc">
+                    /var/log on tmpfs reduces SD card wear. Optimized for long-term reliability.
+                </div>
+            </div>
+        </div>
+
+        <div class="boot-config-section">
+            <h2>⚙️ Zero-Touch Boot Configuration</h2>
+            <p style="margin-bottom: 20px; opacity: 0.9;">
+                Configure your RasPINE system before first boot! Simply create a <code style="background: var(--code-bg); padding: 2px 6px; border-radius: 3px;">raspine-config.txt</code> 
+                file on the boot partition of your SD card to automatically set up WiFi, SSH keys, passwords, and more.
+            </p>
+            
+            <div class="config-feature">
+                <div class="config-icon">📶</div>
+                <div class="config-content">
+                    <div class="config-title">WiFi Networks</div>
+                    <div class="config-desc">Configure multiple WiFi networks with priority ordering - perfect for mobile setups</div>
+                </div>
+            </div>
+            
+            <div class="config-feature">
+                <div class="config-icon">🔑</div>
+                <div class="config-content">
+                    <div class="config-title">SSH Access</div>
+                    <div class="config-desc">Add SSH keys and control password authentication for secure remote access</div>
+                </div>
+            </div>
+            
+            <div class="config-feature">
+                <div class="config-icon">🔐</div>
+                <div class="config-content">
+                    <div class="config-title">User Security</div>
+                    <div class="config-desc">Set custom passwords and manage user accounts right from the config file</div>
+                </div>
+            </div>
+            
+            <div class="config-feature">
+                <div class="config-icon">🌍</div>
+                <div class="config-content">
+                    <div class="config-title">System Settings</div>
+                    <div class="config-desc">Configure hostname, timezone, locale, and WiFi country code</div>
+                </div>
+            </div>
+
+            <h3 style="color: var(--mountain-blue); margin-top: 30px; margin-bottom: 15px;">Example Configuration</h3>
+            <div class="code-block">
+                <pre># Copy raspine-config.txt.sample to raspine-config.txt and edit
+# WARNING: This file is deleted after processing for security!
+
+# WiFi Networks (priority: higher numbers = higher priority)
+wifi_ssid=HomeNetwork
+wifi_password=HomePassword
+
+wifi_ssid_2=WorkNetwork
+wifi_password_2=WorkPassword
+
+wifi_ssid_3=MobileHotspot
+wifi_password_3=HotspotPassword
+
+# Security
+user_password=MySecurePassword
+enable_ssh_password=false
+ssh_key=ssh-rsa AAAAB3NzaC1yc2EAAAA... user@example.com
+
+# System
+hostname=my-raspine
+timezone=Europe/London
+wifi_country=GB</pre>
+                <button class="copy-button" onclick="copyToClipboard(this, this.parentElement.querySelector('pre').textContent)">Copy</button>
+            </div>
+            
+            <p style="margin-top: 20px; padding: 15px; background: rgba(237, 137, 54, 0.1); border-left: 4px solid var(--warning); border-radius: 5px;">
+                <strong>🔒 Security Note:</strong> The config file is automatically deleted after processing to protect your passwords and SSH keys. 
+                Always keep a backup of your configuration settings in a secure location.
+            </p>
+        </div>
+
+        <h2 class="section-title">🥧 Compatible Raspberry Pi Models</h2>
+        <div class="compatibility-grid">
+            <div class="pi-model">
+                <div class="pi-model-name">Pi 1</div>
+                <div class="pi-model-desc">Model A/B/B+</div>
+            </div>
+            <div class="pi-model">
+                <div class="pi-model-name">Pi Zero</div>
+                <div class="pi-model-desc">Zero/W/WH</div>
+            </div>
+            <div class="pi-model">
+                <div class="pi-model-name">Pi Zero 2</div>
+                <div class="pi-model-desc">Zero 2 W</div>
+            </div>
+            <div class="pi-model">
+                <div class="pi-model-name">Pi 2</div>
+                <div class="pi-model-desc">Model B</div>
+            </div>
+            <div class="pi-model">
+                <div class="pi-model-name">Pi 3</div>
+                <div class="pi-model-desc">Model A+/B/B+</div>
+            </div>
+            <div class="pi-model">
+                <div class="pi-model-name">Pi 4</div>
+                <div class="pi-model-desc">Model B</div>
+            </div>
+            <div class="pi-model">
+                <div class="pi-model-name">Pi 400</div>
+                <div class="pi-model-desc">Keyboard Computer</div>
+            </div>
+            <div class="pi-model">
+                <div class="pi-model-name">Pi 5</div>
+                <div class="pi-model-desc">Latest Model</div>
+            </div>
+            <div class="pi-model">
+                <div class="pi-model-name">CM1/3/3+</div>
+                <div class="pi-model-desc">Compute Module</div>
+            </div>
+            <div class="pi-model">
+                <div class="pi-model-name">CM4/4S</div>
+                <div class="pi-model-desc">Compute Module 4</div>
+            </div>
+        </div>
+
+        <div class="quick-start">
+            <h2>🚀 Quick Start</h2>
+            <div class="step">
+                <div class="step-number">1</div>
+                <div class="step-content">
+                    <strong>Extract the image:</strong>
+                    <div class="code-block">
+                        xz -d RasPINE-*.img.xz
+                        <button class="copy-button" onclick="copyToClipboard(this, 'xz -d RasPINE-*.img.xz')">Copy</button>
+                    </div>
+                </div>
+            </div>
+            <div class="step">
+                <div class="step-number">2</div>
+                <div class="step-content">
+                    <strong>Write to SD card:</strong>
+                    <div class="code-block">
+                        sudo dd if=RasPINE-*.img of=/dev/sdX bs=4M status=progress conv=fsync
+                        <button class="copy-button" onclick="copyToClipboard(this, 'sudo dd if=RasPINE-*.img of=/dev/sdX bs=4M status=progress conv=fsync')">Copy</button>
+                    </div>
+                </div>
+            </div>
+            <div class="step">
+                <div class="step-number">3</div>
+                <div class="step-content">
+                    <strong>(Optional) Configure before boot:</strong>
+                    <div style="margin-top: 10px;">
+                        <p>Mount the boot partition and copy <code style="background: var(--code-bg); padding: 2px 6px; border-radius: 3px;">raspine-config.txt.sample</code> 
+                        to <code style="background: var(--code-bg); padding: 2px 6px; border-radius: 3px;">raspine-config.txt</code>, then edit with your settings.</p>
+                    </div>
+                </div>
+            </div>
+            <div class="step">
+                <div class="step-number">4</div>
+                <div class="step-content">
+                    <strong>Boot and login:</strong>
+                    <div style="margin-top: 10px;">
+                        <p>Username: <code style="background: var(--code-bg); padding: 2px 6px; border-radius: 3px;">raspine</code></p>
+                        <p>Password: <code style="background: var(--code-bg); padding: 2px 6px; border-radius: 3px;">raspberry</code> (or your configured password)</p>
+                        <p style="color: var(--warning); margin-top: 10px;">⚠️ Change password immediately if using default: <code style="background: var(--code-bg); padding: 2px 6px; border-radius: 3px;">passwd</code></p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="tech-specs">
+            <h2 style="color: var(--mountain-blue); font-size: 1.8em; margin-bottom: 0;">📊 Technical Specifications</h2>
+            <table class="specs-table">
+                <tr>
+                    <td>Kernel Source</td>
+                    <td>Latest Raspberry Pi OS (all Pi variants included)</td>
+                </tr>
+                <tr>
+                    <td>Userland</td>
+                    <td>Alpine Linux 3.22 (armv6/armhf)</td>
+                </tr>
+                <tr>
+                    <td>Init System</td>
+                    <td>OpenRC (fast and efficient)</td>
+                </tr>
+                <tr>
+                    <td>C Library</td>
+                    <td>musl libc with glibc compatibility layer</td>
+                </tr>
+                <tr>
+                    <td>Package Manager</td>
+                    <td>apk (Alpine Package Keeper)</td>
+                </tr>
+                <tr>
+                    <td>SSH Server</td>
+                    <td>Dropbear (lightweight and secure)</td>
+                </tr>
+                <tr>
+                    <td>Partition Layout</td>
+                    <td>256MB FAT32 /boot/firmware + 1.7GB ext4 root</td>
+                </tr>
+                <tr>
+                    <td>Build Schedule</td>
+                    <td>Weekly automated builds with latest kernels</td>
+                </tr>
+                <tr>
+                    <td>Boot Configuration</td>
+                    <td>Zero-touch setup via raspine-config.txt</td>
+                </tr>
+            </table>
+        </div>
+
+        <footer>
+            <p>
+                <strong>RasPINE - Raspberry Pi + Alpine Linux Hybrid</strong><br>
+                Maintained by Andy Taylor (MW0MWZ) | 
+                <a href="https://github.com/MW0MWZ/RasPINE" target="_blank">GitHub</a> | 
+                <a href="https://github.com/MW0MWZ/RasPINE/releases" target="_blank">Downloads</a>
+            </p>
+            <p style="margin-top: 10px; opacity: 0.7;">
+                Built with ❤️ for the Raspberry Pi and Amateur Radio communities
+            </p>
+        </footer>
+    </div>
+
+    <script>
+        // Load latest build information
+        fetch('/downloads/index.json')
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('latest-date').textContent = data.latest || 'Latest';
+                document.getElementById('image-size').textContent = data.size || '~300MB';
+                
+                // Update download link to use the redirect page
+                const downloadBtn = document.querySelector('.download-btn');
+                if (data.latest && downloadBtn) {
+                    downloadBtn.href = `/downloads/RasPINE-${data.latest}.img.xz.html`;
+                }
+            })
+            .catch(err => {
+                console.error('Failed to load build info:', err);
+                document.getElementById('latest-date').textContent = 'Latest';
+                
+                // Fallback to GitHub releases
+                const downloadBtn = document.querySelector('.download-btn');
+                if (downloadBtn) {
+                    downloadBtn.href = 'https://github.com/MW0MWZ/RasPINE/releases/latest';
+                }
+            });
+
+        // Fetch GitHub API for download count and kernel version
+        fetch('https://api.github.com/repos/MW0MWZ/RasPINE/releases')
+            .then(response => response.json())
+            .then(releases => {
+                let totalDownloads = 0;
+                releases.forEach(release => {
+                    release.assets.forEach(asset => {
+                        totalDownloads += asset.download_count;
+                    });
+                });
+                document.getElementById('download-count').textContent = totalDownloads.toLocaleString();
+            })
+            .catch(err => {
+                console.error('Failed to load GitHub stats:', err);
+                document.getElementById('download-count').textContent = '1000+';
+            });
+
+        // Fetch kernel version from RasPINE repo
+        fetch('https://raspine.pistar.uk/packages.json')
+            .then(response => response.json())
+            .then(data => {
+                if (data.kernel_version) {
+                    document.getElementById('kernel-version').textContent = 'Kernel ' + data.kernel_version;
+                }
+            })
+            .catch(err => {
+                console.error('Failed to load kernel version:', err);
+                document.getElementById('kernel-version').textContent = 'Latest Kernel';
+            });
+
+        function copyToClipboard(button, text) {
+            navigator.clipboard.writeText(text).then(() => {
+                const originalText = button.textContent;
+                button.textContent = 'Copied!';
+                button.style.background = '#5a8a3c';
+                setTimeout(() => {
+                    button.textContent = originalText;
+                    button.style.background = '';
+                }, 2000);
+            });
+        }
+
+        // Add smooth reveal animation on scroll
+        document.addEventListener('DOMContentLoaded', () => {
+            const observerOptions = {
+                threshold: 0.1,
+                rootMargin: '0px 0px -50px 0px'
+            };
+
+            const observer = new IntersectionObserver((entries) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        entry.target.style.opacity = '0';
+                        entry.target.style.transform = 'translateY(20px)';
+                        setTimeout(() => {
+                            entry.target.style.transition = 'all 0.6s ease';
+                            entry.target.style.opacity = '1';
+                            entry.target.style.transform = 'translateY(0)';
+                        }, 100);
+                        observer.unobserve(entry.target);
+                    }
+                });
+            }, observerOptions);
+
+            document.querySelectorAll('.card, .feature-card, .pi-model, .config-feature').forEach(element => {
+                observer.observe(element);
+            });
+        });
+    </script>
+</body>
+</html>
