@@ -5,7 +5,7 @@ pkgname=wiringpi
 pkgver=2025.01.01
 pkgrel=0
 # Git commit will be captured during build
-_gitcommit="unknown"
+_gitcommit="99f2780"
 pkgdesc="GPIO access library for Raspberry Pi (WiringPi community fork with Pi 5 support)"
 url="https://github.com/WiringPi/WiringPi"
 arch="armhf aarch64"
