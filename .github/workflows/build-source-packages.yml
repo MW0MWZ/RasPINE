@@ -422,7 +422,7 @@ jobs:
 
               # Clean all known package prefixes (kernel packages + source packages)
               # Use [0-9] anchor so e.g. "wiringpi-" doesn't also match "wiringpi-dev-"
-              for prefix in raspios-kernel-v6 raspios-kernel-v7 raspios-kernel-v8 raspios-firmware raspios-kernel-headers-common raspios-bootloader wiringpi wiringpi-dev; do
+              for prefix in raspios-kernel-v6 raspios-kernel-v7 raspios-kernel-v8 raspios-kernel-2712 raspios-firmware raspios-kernel-headers-common raspios-bootloader wiringpi wiringpi-dev; do
                 NEWEST=$(ls -t ${prefix}-[0-9]*.apk 2>/dev/null | head -1)
 
                 if [ -n "$NEWEST" ]; then
