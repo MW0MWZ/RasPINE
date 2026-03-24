@@ -150,45 +150,48 @@ done
 
 echo "Downloaded $DOWNLOADED_COUNT packages, $FAILED_COUNT not found"
 
-# On armhf, also fetch arm64 packages to get ALL DTBs (including Pi 5)
+# On armhf, also fetch arm64 packages for v8 kernel and DTBs (including Pi 5)
 if [ "$ARCH" = "armhf" ] && [ "$FETCH_ARCH" = "armhf" ]; then
   echo ""
-  echo "Also fetching arm64 packages for complete DTB collection (Pi 5 support)..."
-  
+  echo "Also fetching arm64 packages for v8 kernel and complete DTB collection (Pi 5 support)..."
+
   # Download arm64 package list
   PACKAGES_URL_ARM64="${REPO_BASE}/dists/${RASPIOS_DIST}/main/binary-arm64/Packages.gz"
   echo "Downloading arm64 package list..."
-  
+
   if wget -O "${WORK_DIR}/Packages_arm64.gz" "${PACKAGES_URL_ARM64}"; then
     gunzip -f "${WORK_DIR}/Packages_arm64.gz"
-    
-    echo "Downloading arm64 kernel packages for DTB extraction..."
-    
-    # Find and download arm64 kernel image packages to get their DTBs (especially Pi 5)
-    # We want the versioned packages to match our kernel version
+
+    # Find the arm64 kernel version (should match armhf)
+    ARM64_KERNEL_VERSION=$(grep "^Package: linux-image-" "${WORK_DIR}/Packages_arm64" | \
+      sed -n 's/^Package: linux-image-\([0-9][0-9.]*+rpt[^-]*\)-rpi.*/\1/p' | \
+      sort -V | tail -1)
+
+    echo "arm64 kernel version: ${ARM64_KERNEL_VERSION}"
+
+    # v8 kernel packages - the 64-bit kernel runs with 32-bit armhf userland
     ARM64_PACKAGES=""
-    
-    if [ -n "$KERNEL_VERSION" ]; then
-      # Try to get the specific kernel version packages
-      ARM64_PACKAGES="linux-image-${KERNEL_VERSION}-rpi-v8 linux-image-${KERNEL_VERSION}-rpi"
+
+    if [ -n "$ARM64_KERNEL_VERSION" ]; then
+      ARM64_PACKAGES="linux-image-${ARM64_KERNEL_VERSION}-rpi-v8 linux-headers-${ARM64_KERNEL_VERSION}-rpi-v8 linux-headers-${ARM64_KERNEL_VERSION}-common-rpi"
     fi
-    
-    # Also get the meta packages as fallback
-    ARM64_PACKAGES="$ARM64_PACKAGES linux-image-rpi-v8 linux-image-rpi"
-    
+
+    # Meta packages as fallback, plus 2712 for DTBs
+    ARM64_PACKAGES="$ARM64_PACKAGES linux-image-rpi-v8 linux-headers-rpi-v8 linux-image-rpi-2712"
+
     # Download the arm64 packages
     for pkg in $ARM64_PACKAGES; do
       if grep -q "^Package: ${pkg}$" "${WORK_DIR}/Packages_arm64"; then
         echo "  Found arm64 package: $pkg"
         if download_package_arm64 "$pkg"; then
-          echo "    Downloaded $pkg for DTB extraction"
+          echo "    Downloaded $pkg"
         fi
       fi
     done
-    
-    echo "ARM64 packages downloaded for DTB extraction"
+
+    echo "ARM64 packages downloaded for v8 kernel and DTB extraction"
   else
-    echo "Warning: Could not fetch arm64 package list - Pi 5 DTBs may be missing"
+    echo "Warning: Could not fetch arm64 package list - v8 kernel and Pi 5 DTBs may be missing"
   fi
 fi
 

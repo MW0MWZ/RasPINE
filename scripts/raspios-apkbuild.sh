@@ -263,6 +263,10 @@ for variant in $VARIANTS; do
         KERNEL_SUFFIX="8"
         INITRAMFS_SUFFIX="8"
         ;;
+      2712)
+        KERNEL_SUFFIX="_2712"
+        INITRAMFS_SUFFIX="_2712"
+        ;;
       *)
         KERNEL_SUFFIX=""
         INITRAMFS_SUFFIX=""

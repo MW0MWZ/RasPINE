@@ -77,7 +77,7 @@ jobs:
             variants: "v6 v7 v8"
           - arch: aarch64
             platform: linux/arm64
-            variants: "v8"
+            variants: "v8 2712"
     
     outputs:
       kernel_version: ${{ steps.fetch.outputs.kernel_version }}
@@ -248,7 +248,7 @@ jobs:
               cd "$dir"
               
               # For each package type, keep ONLY the newest by timestamp
-              for prefix in raspios-kernel-v6 raspios-kernel-v7 raspios-kernel-v8 raspios-firmware raspios-kernel-headers-common raspios-bootloader; do
+              for prefix in raspios-kernel-v6 raspios-kernel-v7 raspios-kernel-v8 raspios-kernel-2712 raspios-firmware raspios-kernel-headers-common raspios-bootloader; do
                 NEWEST=$(ls -t ${prefix}-*.apk 2>/dev/null | head -1)
                 
                 if [ -n "$NEWEST" ]; then
@@ -335,7 +335,7 @@ jobs:
             (
               cd "$dir"
               
-              for prefix in raspios-kernel-v6 raspios-kernel-v7 raspios-kernel-v8 raspios-firmware raspios-kernel-headers-common raspios-bootloader; do
+              for prefix in raspios-kernel-v6 raspios-kernel-v7 raspios-kernel-v8 raspios-kernel-2712 raspios-firmware raspios-kernel-headers-common raspios-bootloader; do
                 NEWEST=$(ls -t ${prefix}-*.apk 2>/dev/null | head -1)
                 
                 if [ -n "$NEWEST" ]; then

@@ -56,10 +56,9 @@ jobs:
           # Still need to get the kernel version
           REPO_BASE="http://archive.raspberrypi.org/debian"
           RASPIOS_DIST="trixie"
-          
+
           LATEST_KERNEL=$(curl -s "${REPO_BASE}/dists/${RASPIOS_DIST}/main/binary-armhf/Packages.gz" | \
-                          gunzip | grep -A 10 "^Package: raspberrypi-kernel$" | \
-                          grep "^Version:" | cut -d' ' -f2 | head -1)
+                          gunzip | awk '/^Package: linux-image-rpi-v7$/{found=1} found && /^Version:/{print $2; exit}')
           
           echo "kernel_version=$LATEST_KERNEL" >> $GITHUB_OUTPUT
           echo "repo_version=unknown" >> $GITHUB_OUTPUT
@@ -80,11 +79,10 @@ jobs:
         # Check Raspberry Pi OS repository for latest kernel
         REPO_BASE="http://archive.raspberrypi.org/debian"
         RASPIOS_DIST="trixie"
-        
+
         echo "Checking Raspberry Pi OS repository..."
         LATEST_KERNEL=$(curl -s "${REPO_BASE}/dists/${RASPIOS_DIST}/main/binary-armhf/Packages.gz" | \
-                        gunzip | grep -A 10 "^Package: raspberrypi-kernel$" | \
-                        grep "^Version:" | cut -d' ' -f2 | head -1)
+                        gunzip | awk '/^Package: linux-image-rpi-v7$/{found=1} found && /^Version:/{print $2; exit}')
         
         if [ -z "$LATEST_KERNEL" ]; then
           echo "ERROR: Could not determine latest kernel version"
@@ -127,10 +125,9 @@ jobs:
           rm -f /tmp/packages.json
         fi
         
-        # Compare versions - we need to be smarter about this
-        # The upstream version is like "1:1.20230405-1"
-        # Our APK version is like "6.6.51"
-        # We should compare the actual kernel version, not the package version
+        # Compare versions
+        # The upstream version is like "1:6.12.75-1+rpt1" (from linux-image-rpi-v7 meta package)
+        # We compare against the stored version in .last_build_info
         
         NEEDS_UPDATE=false
         
