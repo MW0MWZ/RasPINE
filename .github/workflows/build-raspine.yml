@@ -228,10 +228,7 @@ jobs:
           dhcpcd
         
         # Install Raspberry Pi kernels from RasPINE repo
-        # Alpine 3.23 moved /lib/modules and /lib/firmware to /usr/lib/.
-        # RPi kernel expects both at /lib/. Symlinks fix this.
-        ln -sf /usr/lib/modules /lib/modules
-        ln -sf /usr/lib/firmware /lib/firmware
+        # Symlinks for /lib/modules and /lib/firmware are included in the APK packages
         echo "Installing Raspberry Pi kernels from RasPINE repo..."
         apk add --no-cache --force-overwrite \
           raspios-firmware \
