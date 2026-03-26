@@ -219,6 +219,7 @@ jobs:
           libc6-compat \
           wpa_supplicant \
           wireless-tools \
+          wireless-regdb \
           iw \
           ca-certificates \
           ca-certificates-bundle \
