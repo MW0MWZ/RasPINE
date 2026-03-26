@@ -188,11 +188,6 @@ package() {
 		cd "\$srcdir"
 	fi
 	
-	# Create /lib/firmware -> /usr/lib/firmware symlink
-	# RPi OS kernel looks at /lib/firmware, Alpine 3.23 uses /usr/lib/firmware
-	mkdir -p "\$pkgdir/lib"
-	ln -sf /usr/lib/firmware "\$pkgdir/lib/firmware"
-
 	# Ensure at least an empty package is created
 	mkdir -p "\$pkgdir/usr/share/doc/raspios-firmware"
 	cat > "\$pkgdir/usr/share/doc/raspios-firmware/README" << README
@@ -384,11 +379,6 @@ package() {
 		done
 	fi
 	
-	# Create /lib/modules -> /usr/lib/modules symlink
-	# RPi OS kernel expects modules at /lib/modules, Alpine 3.23 uses /usr/lib/modules
-	mkdir -p "\$pkgdir/lib"
-	ln -sf /usr/lib/modules "\$pkgdir/lib/modules"
-
 	# Ensure at least an empty package is created
 	mkdir -p "\$pkgdir/usr/share/doc/raspios-kernel-${variant}"
 	cat > "\$pkgdir/usr/share/doc/raspios-kernel-${variant}/README" << README
