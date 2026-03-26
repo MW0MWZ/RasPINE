@@ -341,12 +341,18 @@ if [ -n "$(ls -A $COMMON_HEADERS_DIR 2>/dev/null)" ]; then
   tar czf "${OUTPUT_DIR}/raspios-kernel-headers-common.tar.gz" -C "$OUTPUT_DIR" "raspios-kernel-headers-common"
 fi
 
-# Process firmware packages (now includes ALL DTBs and overlays we collected earlier)
+# Process Raspberry Pi firmware packages (boot firmware, Broadcom/Cypress WiFi)
+# Debian WiFi firmware packages (firmware-realtek, firmware-atheros, firmware-mediatek)
+# are handled separately below - only USB WiFi firmware is extracted from those
 FIRMWARE_FOUND=false
 for pkg_dir in ${EXTRACT_DIR}/*; do
   [ -d "$pkg_dir" ] || continue
   pkg_name=$(basename "$pkg_dir")
-  
+
+  # Skip Debian WiFi firmware packages - handled by USB WiFi extraction below
+  case "$pkg_name" in
+    firmware-realtek*|firmware-atheros*|firmware-mediatek*) continue ;;
+  esac
   if echo "$pkg_name" | grep -q "^raspi-firmware\|^raspberrypi-firmware\|^firmware-"; then
     FIRMWARE_FOUND=true
     break
@@ -354,25 +360,28 @@ for pkg_dir in ${EXTRACT_DIR}/*; do
 done
 
 if [ "$FIRMWARE_FOUND" = "true" ]; then
-  echo "Processing firmware packages..."
-  
+  echo "Processing Raspberry Pi firmware packages..."
+
   for pkg_dir in ${EXTRACT_DIR}/*; do
     [ -d "$pkg_dir" ] || continue
     pkg_name=$(basename "$pkg_dir")
-    
+
+    # Skip Debian WiFi firmware packages
+    case "$pkg_name" in
+      firmware-realtek*|firmware-atheros*|firmware-mediatek*) continue ;;
+    esac
     if echo "$pkg_name" | grep -q "^raspi-firmware\|^raspberrypi-firmware\|^firmware-"; then
       echo "  Copying firmware from $pkg_name"
-      
+
       if [ -d "$pkg_dir/usr/lib/raspi-firmware" ]; then
         echo "    Relocating /usr/lib/raspi-firmware to /boot/firmware"
         mkdir -p "$FIRMWARE_DIR/boot/firmware"
-        
+
         # Copy everything EXCEPT .dtb files and overlays (we already have all of those)
         for item in "$pkg_dir/usr/lib/raspi-firmware"/*; do
           [ -e "$item" ] || continue
           item_name=$(basename "$item")
-          
-          # Skip DTBs and overlays directory (we already collected these)
+
           case "$item_name" in
             *.dtb)
               echo "      Skipping $item_name (already collected)"
@@ -386,7 +395,7 @@ if [ "$FIRMWARE_FOUND" = "true" ]; then
               ;;
           esac
         done
-        
+
         # Copy other files (not in /usr/lib/raspi-firmware)
         for item in "$pkg_dir"/*; do
           if [ "$(basename "$item")" != "usr" ]; then
@@ -394,34 +403,28 @@ if [ "$FIRMWARE_FOUND" = "true" ]; then
           fi
         done
       else
-        # No relocation needed, copy selectively
-        cp -r "$pkg_dir/lib" "$FIRMWARE_DIR/" 2>/dev/null || true
-        # Trixie puts firmware in /usr/lib/firmware/ instead of /lib/firmware/
+        # Trixie: firmware is in /usr/lib/firmware/
         if [ -d "$pkg_dir/usr/lib/firmware" ]; then
-          mkdir -p "$FIRMWARE_DIR/lib/firmware"
-          cp -r "$pkg_dir/usr/lib/firmware"/* "$FIRMWARE_DIR/lib/firmware/" 2>/dev/null || true
+          mkdir -p "$FIRMWARE_DIR/usr/lib/firmware"
+          cp -r "$pkg_dir/usr/lib/firmware"/* "$FIRMWARE_DIR/usr/lib/firmware/" 2>/dev/null || true
         fi
         cp -r "$pkg_dir/etc" "$FIRMWARE_DIR/" 2>/dev/null || true
-        cp -r "$pkg_dir/opt" "$FIRMWARE_DIR/" 2>/dev/null || true
-        
+
         # For /boot, be selective to avoid overwriting our collected DTBs
         if [ -d "$pkg_dir/boot" ]; then
-          # Copy boot files but not DTBs or overlays
           for item in "$pkg_dir/boot"/*; do
             [ -e "$item" ] || continue
             item_name=$(basename "$item")
-            
+
             if [ "$item_name" = "firmware" ]; then
-              # Handle /boot/firmware specially
               if [ -d "$item" ]; then
                 mkdir -p "$FIRMWARE_DIR/boot/firmware"
                 for fwitem in "$item"/*; do
                   [ -e "$fwitem" ] || continue
                   fwitem_name=$(basename "$fwitem")
-                  
+
                   case "$fwitem_name" in
                     *.dtb|overlays)
-                      # Skip, we already have these
                       ;;
                     *)
                       cp -r "$fwitem" "$FIRMWARE_DIR/boot/firmware/" 2>/dev/null || true
@@ -430,10 +433,8 @@ if [ "$FIRMWARE_FOUND" = "true" ]; then
                 done
               fi
             else
-              # Not firmware subdirectory
               case "$item_name" in
                 *.dtb)
-                  # Skip DTBs
                   ;;
                 *)
                   mkdir -p "$FIRMWARE_DIR/boot"
@@ -446,109 +447,102 @@ if [ "$FIRMWARE_FOUND" = "true" ]; then
       fi
     fi
   done
-  
+
   # Extract USB WiFi firmware from Debian firmware packages
+  # Only specific USB WiFi firmware files - nothing else
   echo "Extracting USB WiFi firmware from Debian packages..."
   USB_WIFI_COUNT=0
+  USB_FW_DIR="$FIRMWARE_DIR/usr/lib/firmware"
 
   for pkg_dir in ${EXTRACT_DIR}/*; do
     [ -d "$pkg_dir" ] || continue
     pkg_name=$(basename "$pkg_dir")
 
-    # Match Debian WiFi firmware packages
     case "$pkg_name" in
-      firmware-realtek*|firmware-atheros*|firmware-mediatek*|firmware-misc-nonfree*)
+      firmware-realtek*|firmware-atheros*|firmware-mediatek*)
         echo "  Scanning $pkg_name for USB WiFi firmware..."
 
-        # Realtek USB WiFi firmware (rtlwifi/, rtw88/, rtw89/)
+        # Find firmware source dir (Trixie uses /usr/lib/firmware/)
+        fw_src=""
+        if [ -d "$pkg_dir/usr/lib/firmware" ]; then
+          fw_src="$pkg_dir/usr/lib/firmware"
+        elif [ -d "$pkg_dir/lib/firmware" ]; then
+          fw_src="$pkg_dir/lib/firmware"
+        fi
+        [ -z "$fw_src" ] && continue
+
+        # Realtek USB WiFi firmware
         for fw_subdir in rtlwifi rtw88 rtw89; do
-          src=""
-          if [ -d "$pkg_dir/lib/firmware/$fw_subdir" ]; then
-            src="$pkg_dir/lib/firmware/$fw_subdir"
-          elif [ -d "$pkg_dir/usr/lib/firmware/$fw_subdir" ]; then
-            src="$pkg_dir/usr/lib/firmware/$fw_subdir"
-          fi
-          if [ -n "$src" ]; then
-            mkdir -p "$FIRMWARE_DIR/lib/firmware/$fw_subdir"
-            cp -r "$src"/* "$FIRMWARE_DIR/lib/firmware/$fw_subdir/" 2>/dev/null || true
-            count=$(find "$src" -type f | wc -l)
+          if [ -d "$fw_src/$fw_subdir" ]; then
+            mkdir -p "$USB_FW_DIR/$fw_subdir"
+            cp -r "$fw_src/$fw_subdir"/* "$USB_FW_DIR/$fw_subdir/" 2>/dev/null || true
+            count=$(find "$fw_src/$fw_subdir" -type f | wc -l)
             USB_WIFI_COUNT=$((USB_WIFI_COUNT + count))
             echo "    Copied $count files from $fw_subdir/"
           fi
         done
 
         # Ralink/MediaTek USB WiFi firmware at root level
-        # (rt2870.bin, rt3070.bin, rt3071.bin, rt73.bin, mt7601u.bin, mt7650.bin, mt7662.bin, etc.)
-        for fw_base in lib/firmware usr/lib/firmware; do
-          if [ -d "$pkg_dir/$fw_base" ]; then
-            for fwfile in "$pkg_dir/$fw_base"/rt*.bin "$pkg_dir/$fw_base"/mt76*.bin; do
-              [ -f "$fwfile" ] || continue
-              mkdir -p "$FIRMWARE_DIR/lib/firmware"
-              cp "$fwfile" "$FIRMWARE_DIR/lib/firmware/" 2>/dev/null || true
-              USB_WIFI_COUNT=$((USB_WIFI_COUNT + 1))
-              echo "    Copied $(basename "$fwfile")"
-            done
-          fi
+        # (rt2870.bin, rt3070.bin, rt3071.bin, rt73.bin, mt7601u.bin, mt7650.bin, mt7662.bin)
+        for fwfile in "$fw_src"/rt*.bin "$fw_src"/mt76*.bin; do
+          [ -f "$fwfile" ] || continue
+          mkdir -p "$USB_FW_DIR"
+          cp "$fwfile" "$USB_FW_DIR/" 2>/dev/null || true
+          USB_WIFI_COUNT=$((USB_WIFI_COUNT + 1))
+          echo "    Copied $(basename "$fwfile")"
         done
 
         # MediaTek USB WiFi firmware in mediatek/ subdirectory
-        # (mt7601u.bin, mt7610*.bin, mt7612*.bin and other USB chipsets)
-        for fw_base in lib/firmware usr/lib/firmware; do
-          if [ -d "$pkg_dir/$fw_base/mediatek" ]; then
-            for mtfile in "$pkg_dir/$fw_base/mediatek"/mt76{01,10,12,15,62,63,68}*; do
-              [ -f "$mtfile" ] || continue
-              mkdir -p "$FIRMWARE_DIR/lib/firmware/mediatek"
-              cp "$mtfile" "$FIRMWARE_DIR/lib/firmware/mediatek/" 2>/dev/null || true
-              USB_WIFI_COUNT=$((USB_WIFI_COUNT + 1))
-              echo "    Copied mediatek/$(basename "$mtfile")"
-            done
-          fi
-        done
+        # Only USB chipsets: mt7601u, mt7610u, mt7612u, mt7662u, mt7663u
+        if [ -d "$fw_src/mediatek" ]; then
+          for mtfile in "$fw_src/mediatek"/mt76{01,10,12,62,63}*; do
+            [ -f "$mtfile" ] || continue
+            mkdir -p "$USB_FW_DIR/mediatek"
+            cp "$mtfile" "$USB_FW_DIR/mediatek/" 2>/dev/null || true
+            USB_WIFI_COUNT=$((USB_WIFI_COUNT + 1))
+            echo "    Copied mediatek/$(basename "$mtfile")"
+          done
+        fi
 
-        # Atheros USB WiFi firmware (ath9k_htc/)
-        for fw_base in lib/firmware usr/lib/firmware; do
-          if [ -d "$pkg_dir/$fw_base/ath9k_htc" ]; then
-            mkdir -p "$FIRMWARE_DIR/lib/firmware/ath9k_htc"
-            cp -r "$pkg_dir/$fw_base/ath9k_htc"/* "$FIRMWARE_DIR/lib/firmware/ath9k_htc/" 2>/dev/null || true
-            count=$(find "$pkg_dir/$fw_base/ath9k_htc" -type f | wc -l)
-            USB_WIFI_COUNT=$((USB_WIFI_COUNT + count))
-            echo "    Copied $count files from ath9k_htc/"
-          fi
-        done
+        # Atheros USB WiFi firmware (ath9k_htc/ - AR9271, AR7010)
+        if [ -d "$fw_src/ath9k_htc" ]; then
+          mkdir -p "$USB_FW_DIR/ath9k_htc"
+          cp -r "$fw_src/ath9k_htc"/* "$USB_FW_DIR/ath9k_htc/" 2>/dev/null || true
+          count=$(find "$fw_src/ath9k_htc" -type f | wc -l)
+          USB_WIFI_COUNT=$((USB_WIFI_COUNT + count))
+          echo "    Copied $count files from ath9k_htc/"
+        fi
         ;;
     esac
   done
 
   echo "  Total USB WiFi firmware files extracted: $USB_WIFI_COUNT"
 
-  # Create symlink for Cypress WiFi firmware compatibility
+  # Create symlink for Cypress WiFi firmware compatibility (built-in Pi WiFi)
   echo "Creating Cypress WiFi firmware symlinks..."
-  if [ -d "$FIRMWARE_DIR/lib/firmware/cypress" ]; then
-    cd "$FIRMWARE_DIR/lib/firmware/cypress"
-    
-    # Create symlink for cyfmac43455-sdio.bin if the standard version exists
+  if [ -d "$FIRMWARE_DIR/usr/lib/firmware/cypress" ]; then
+    cd "$FIRMWARE_DIR/usr/lib/firmware/cypress"
+
     if [ -f "cyfmac43455-sdio-standard.bin" ] && [ ! -e "cyfmac43455-sdio.bin" ]; then
       ln -sf cyfmac43455-sdio-standard.bin cyfmac43455-sdio.bin
       echo "  Created symlink: cyfmac43455-sdio.bin -> cyfmac43455-sdio-standard.bin"
     fi
-    
-    # Add other common Cypress symlinks if needed
-    # For BCM43430 (Pi Zero W, Pi 3B)
+
     if [ -f "cyfmac43430-sdio-raspberrypi,model-zero-w.bin" ] && [ ! -e "cyfmac43430-sdio.bin" ]; then
       ln -sf "cyfmac43430-sdio-raspberrypi,model-zero-w.bin" cyfmac43430-sdio.bin
       echo "  Created symlink: cyfmac43430-sdio.bin -> cyfmac43430-sdio-raspberrypi,model-zero-w.bin"
     fi
-    
+
     cd - > /dev/null
   fi
-  
+
   # Final verification of firmware package
   echo "Verifying firmware package contents:"
   echo "  DTB files: $(find "$FIRMWARE_DIR/boot/firmware" -maxdepth 1 -name "*.dtb" 2>/dev/null | wc -l)"
   echo "  Overlay files: $(find "$FIRMWARE_DIR/boot/firmware/overlays" -name "*.dtbo" 2>/dev/null | wc -l)"
   echo "  Bootloader files: $(find "$FIRMWARE_DIR/boot/firmware" -maxdepth 1 \( -name "*.elf" -o -name "*.dat" \) 2>/dev/null | wc -l)"
-  
-  # List specific critical DTBs to ensure they're present
+  echo "  WiFi firmware files: $(find "$FIRMWARE_DIR/usr/lib/firmware" -type f 2>/dev/null | wc -l)"
+
   echo "  Critical DTBs check:"
   for dtb in bcm2708-rpi-b.dtb bcm2708-rpi-zero.dtb bcm2709-rpi-2-b.dtb bcm2710-rpi-3-b.dtb bcm2711-rpi-4-b.dtb; do
     if [ -f "$FIRMWARE_DIR/boot/firmware/$dtb" ]; then
@@ -557,7 +551,7 @@ if [ "$FIRMWARE_FOUND" = "true" ]; then
       echo "    ✗ $dtb MISSING!"
     fi
   done
-  
+
   if [ -n "$(ls -A $FIRMWARE_DIR 2>/dev/null)" ]; then
     echo "Creating firmware tarball..."
     tar czf "${OUTPUT_DIR}/raspios-firmware.tar.gz" -C "$OUTPUT_DIR" "raspios-firmware"
