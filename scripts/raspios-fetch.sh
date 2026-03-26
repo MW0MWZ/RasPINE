@@ -126,13 +126,53 @@ fi
 # Firmware packages
 if [ "$PACKAGE_TYPES" = "all" ] || [ "$PACKAGE_TYPES" = "firmware-only" ]; then
   echo "Checking for firmware packages..."
-  
+
   for pkg in raspi-firmware raspberrypi-firmware firmware-brcm80211 firmware-misc-nonfree; do
     if grep -q "^Package: ${pkg}$" "${WORK_DIR}/Packages_${FETCH_ARCH}"; then
       echo "  Found firmware package: $pkg"
       PACKAGES_TO_DOWNLOAD="$PACKAGES_TO_DOWNLOAD $pkg"
     fi
   done
+
+  # Fetch USB WiFi firmware from Debian non-free-firmware repository
+  # These match the RPi OS kernel (Debian-based) rather than Alpine's versions
+  echo ""
+  echo "Fetching USB WiFi firmware from Debian ${RASPIOS_DIST} non-free-firmware..."
+  DEBIAN_REPO_BASE="http://deb.debian.org/debian"
+  DEBIAN_FW_PACKAGES_URL="${DEBIAN_REPO_BASE}/dists/${RASPIOS_DIST}/non-free-firmware/binary-${FETCH_ARCH}/Packages.gz"
+
+  if wget -O "${WORK_DIR}/Packages_debian_fw_${FETCH_ARCH}.gz" "${DEBIAN_FW_PACKAGES_URL}" 2>/dev/null; then
+    gunzip -f "${WORK_DIR}/Packages_debian_fw_${FETCH_ARCH}.gz"
+    echo "  Downloaded Debian non-free-firmware package list for ${FETCH_ARCH}"
+
+    for pkg in firmware-realtek firmware-atheros firmware-misc-nonfree firmware-ralink; do
+      filename=$(awk -v pkg="$pkg" '
+        BEGIN { RS = ""; FS = "\n" }
+        {
+          found = 0
+          for (i = 1; i <= NF; i++) {
+            if ($i == "Package: " pkg) found = 1
+            if (found && $i ~ /^Filename: /) {
+              print substr($i, 11)
+              exit
+            }
+          }
+        }
+      ' "${WORK_DIR}/Packages_debian_fw_${FETCH_ARCH}")
+
+      if [ -n "$filename" ]; then
+        deb_basename=$(basename "$filename")
+        if [ ! -f "${WORK_DIR}/debs/$deb_basename" ]; then
+          echo "  Downloading ${pkg} (${FETCH_ARCH})..."
+          wget -q --show-progress -O "${WORK_DIR}/debs/$deb_basename" "${DEBIAN_REPO_BASE}/${filename}" || true
+        fi
+      else
+        echo "  Package ${pkg} not found in Debian non-free-firmware"
+      fi
+    done
+  else
+    echo "  Warning: Could not fetch Debian non-free-firmware package list for ${FETCH_ARCH}"
+  fi
 fi
 
 # Download packages

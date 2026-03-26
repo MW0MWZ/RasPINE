@@ -447,6 +447,78 @@ if [ "$FIRMWARE_FOUND" = "true" ]; then
     fi
   done
   
+  # Extract USB WiFi firmware from Debian firmware packages
+  echo "Extracting USB WiFi firmware from Debian packages..."
+  USB_WIFI_COUNT=0
+
+  for pkg_dir in ${EXTRACT_DIR}/*; do
+    [ -d "$pkg_dir" ] || continue
+    pkg_name=$(basename "$pkg_dir")
+
+    # Match Debian WiFi firmware packages
+    case "$pkg_name" in
+      firmware-realtek*|firmware-atheros*|firmware-misc-nonfree*|firmware-ralink*)
+        echo "  Scanning $pkg_name for USB WiFi firmware..."
+
+        # Realtek USB WiFi firmware (rtlwifi/, rtw88/, rtw89/)
+        for fw_subdir in rtlwifi rtw88 rtw89; do
+          src=""
+          if [ -d "$pkg_dir/lib/firmware/$fw_subdir" ]; then
+            src="$pkg_dir/lib/firmware/$fw_subdir"
+          elif [ -d "$pkg_dir/usr/lib/firmware/$fw_subdir" ]; then
+            src="$pkg_dir/usr/lib/firmware/$fw_subdir"
+          fi
+          if [ -n "$src" ]; then
+            mkdir -p "$FIRMWARE_DIR/lib/firmware/$fw_subdir"
+            cp -r "$src"/* "$FIRMWARE_DIR/lib/firmware/$fw_subdir/" 2>/dev/null || true
+            count=$(find "$src" -type f | wc -l)
+            USB_WIFI_COUNT=$((USB_WIFI_COUNT + count))
+            echo "    Copied $count files from $fw_subdir/"
+          fi
+        done
+
+        # Ralink USB WiFi firmware (rt2870.bin, rt3070.bin, rt3071.bin, rt73.bin)
+        for fw_base in lib/firmware usr/lib/firmware; do
+          if [ -d "$pkg_dir/$fw_base" ]; then
+            for rtfile in "$pkg_dir/$fw_base"/rt*.bin; do
+              [ -f "$rtfile" ] || continue
+              mkdir -p "$FIRMWARE_DIR/lib/firmware"
+              cp "$rtfile" "$FIRMWARE_DIR/lib/firmware/" 2>/dev/null || true
+              USB_WIFI_COUNT=$((USB_WIFI_COUNT + 1))
+              echo "    Copied $(basename "$rtfile")"
+            done
+          fi
+        done
+
+        # Atheros USB WiFi firmware (ath9k_htc/)
+        for fw_base in lib/firmware usr/lib/firmware; do
+          if [ -d "$pkg_dir/$fw_base/ath9k_htc" ]; then
+            mkdir -p "$FIRMWARE_DIR/lib/firmware/ath9k_htc"
+            cp -r "$pkg_dir/$fw_base/ath9k_htc"/* "$FIRMWARE_DIR/lib/firmware/ath9k_htc/" 2>/dev/null || true
+            count=$(find "$pkg_dir/$fw_base/ath9k_htc" -type f | wc -l)
+            USB_WIFI_COUNT=$((USB_WIFI_COUNT + count))
+            echo "    Copied $count files from ath9k_htc/"
+          fi
+        done
+
+        # MediaTek USB WiFi firmware (mediatek/mt7601u.bin, mt7610*.bin, mt7612*.bin)
+        for fw_base in lib/firmware usr/lib/firmware; do
+          if [ -d "$pkg_dir/$fw_base/mediatek" ]; then
+            for mtfile in "$pkg_dir/$fw_base/mediatek"/mt76{01,10,12}*; do
+              [ -f "$mtfile" ] || continue
+              mkdir -p "$FIRMWARE_DIR/lib/firmware/mediatek"
+              cp "$mtfile" "$FIRMWARE_DIR/lib/firmware/mediatek/" 2>/dev/null || true
+              USB_WIFI_COUNT=$((USB_WIFI_COUNT + 1))
+              echo "    Copied mediatek/$(basename "$mtfile")"
+            done
+          fi
+        done
+        ;;
+    esac
+  done
+
+  echo "  Total USB WiFi firmware files extracted: $USB_WIFI_COUNT"
+
   # Create symlink for Cypress WiFi firmware compatibility
   echo "Creating Cypress WiFi firmware symlinks..."
   if [ -d "$FIRMWARE_DIR/lib/firmware/cypress" ]; then
