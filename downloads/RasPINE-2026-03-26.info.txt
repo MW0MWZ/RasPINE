@@ -3,8 +3,8 @@ RasPINE Hybrid Image
 Build Date: 2026-03-26
 Alpine Version: 3.23
 Architecture: armhf
-Image Size: 154M
-SHA256: 3d12403e2e1cb5733177c23c0b809cfb2b8f2a2a5d4afa66cca40ef98bad50b0
+Image Size: 151M
+SHA256: afdd0bf8cc723b4925c1d0481a05609627bae8ec0b131e11c84c316078c1150f
 
 Default Credentials:
 Username: raspine
