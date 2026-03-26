@@ -230,9 +230,9 @@ jobs:
         # Install Raspberry Pi kernels from RasPINE repo
         # Alpine 3.23 uses /usr/lib/ for modules and firmware, but the
         # RPi OS kernel looks at /lib/. Replace the empty dirs with symlinks.
-        rm -d /lib/firmware 2>/dev/null || true
+        rm -rf /lib/firmware
+        ln -s /usr/lib/firmware /lib/firmware
         rm -d /lib/modules 2>/dev/null || true
-        ln -sf /usr/lib/firmware /lib/firmware
         ln -sf /usr/lib/modules /lib/modules
         echo "Installing Raspberry Pi kernels from RasPINE repo..."
         apk add --no-cache --force-overwrite \
