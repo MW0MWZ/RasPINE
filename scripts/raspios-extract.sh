@@ -457,7 +457,7 @@ if [ "$FIRMWARE_FOUND" = "true" ]; then
 
     # Match Debian WiFi firmware packages
     case "$pkg_name" in
-      firmware-realtek*|firmware-atheros*|firmware-misc-nonfree*|firmware-ralink*)
+      firmware-realtek*|firmware-atheros*|firmware-mediatek*|firmware-misc-nonfree*)
         echo "  Scanning $pkg_name for USB WiFi firmware..."
 
         # Realtek USB WiFi firmware (rtlwifi/, rtw88/, rtw89/)
@@ -477,15 +477,30 @@ if [ "$FIRMWARE_FOUND" = "true" ]; then
           fi
         done
 
-        # Ralink USB WiFi firmware (rt2870.bin, rt3070.bin, rt3071.bin, rt73.bin)
+        # Ralink/MediaTek USB WiFi firmware at root level
+        # (rt2870.bin, rt3070.bin, rt3071.bin, rt73.bin, mt7601u.bin, mt7650.bin, mt7662.bin, etc.)
         for fw_base in lib/firmware usr/lib/firmware; do
           if [ -d "$pkg_dir/$fw_base" ]; then
-            for rtfile in "$pkg_dir/$fw_base"/rt*.bin; do
-              [ -f "$rtfile" ] || continue
+            for fwfile in "$pkg_dir/$fw_base"/rt*.bin "$pkg_dir/$fw_base"/mt76*.bin; do
+              [ -f "$fwfile" ] || continue
               mkdir -p "$FIRMWARE_DIR/lib/firmware"
-              cp "$rtfile" "$FIRMWARE_DIR/lib/firmware/" 2>/dev/null || true
+              cp "$fwfile" "$FIRMWARE_DIR/lib/firmware/" 2>/dev/null || true
               USB_WIFI_COUNT=$((USB_WIFI_COUNT + 1))
-              echo "    Copied $(basename "$rtfile")"
+              echo "    Copied $(basename "$fwfile")"
+            done
+          fi
+        done
+
+        # MediaTek USB WiFi firmware in mediatek/ subdirectory
+        # (mt7601u.bin, mt7610*.bin, mt7612*.bin and other USB chipsets)
+        for fw_base in lib/firmware usr/lib/firmware; do
+          if [ -d "$pkg_dir/$fw_base/mediatek" ]; then
+            for mtfile in "$pkg_dir/$fw_base/mediatek"/mt76{01,10,12,15,62,63,68}*; do
+              [ -f "$mtfile" ] || continue
+              mkdir -p "$FIRMWARE_DIR/lib/firmware/mediatek"
+              cp "$mtfile" "$FIRMWARE_DIR/lib/firmware/mediatek/" 2>/dev/null || true
+              USB_WIFI_COUNT=$((USB_WIFI_COUNT + 1))
+              echo "    Copied mediatek/$(basename "$mtfile")"
             done
           fi
         done
@@ -498,19 +513,6 @@ if [ "$FIRMWARE_FOUND" = "true" ]; then
             count=$(find "$pkg_dir/$fw_base/ath9k_htc" -type f | wc -l)
             USB_WIFI_COUNT=$((USB_WIFI_COUNT + count))
             echo "    Copied $count files from ath9k_htc/"
-          fi
-        done
-
-        # MediaTek USB WiFi firmware (mediatek/mt7601u.bin, mt7610*.bin, mt7612*.bin)
-        for fw_base in lib/firmware usr/lib/firmware; do
-          if [ -d "$pkg_dir/$fw_base/mediatek" ]; then
-            for mtfile in "$pkg_dir/$fw_base/mediatek"/mt76{01,10,12}*; do
-              [ -f "$mtfile" ] || continue
-              mkdir -p "$FIRMWARE_DIR/lib/firmware/mediatek"
-              cp "$mtfile" "$FIRMWARE_DIR/lib/firmware/mediatek/" 2>/dev/null || true
-              USB_WIFI_COUNT=$((USB_WIFI_COUNT + 1))
-              echo "    Copied mediatek/$(basename "$mtfile")"
-            done
           fi
         done
         ;;

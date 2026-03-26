@@ -145,7 +145,7 @@ if [ "$PACKAGE_TYPES" = "all" ] || [ "$PACKAGE_TYPES" = "firmware-only" ]; then
     gunzip -f "${WORK_DIR}/Packages_debian_fw_${FETCH_ARCH}.gz"
     echo "  Downloaded Debian non-free-firmware package list for ${FETCH_ARCH}"
 
-    for pkg in firmware-realtek firmware-atheros firmware-misc-nonfree firmware-ralink; do
+    for pkg in firmware-realtek firmware-atheros firmware-mediatek firmware-misc-nonfree; do
       filename=$(awk -v pkg="$pkg" '
         BEGIN { RS = ""; FS = "\n" }
         {
