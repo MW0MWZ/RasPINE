@@ -319,9 +319,23 @@ elif [ -f "/boot/vmlinuz" ]; then
     cp -f "/boot/vmlinuz" "/boot/firmware/kernel${KERNEL_SUFFIX}.img"
 fi
 echo "Raspberry Pi kernel ${variant} configured."
+
+# Kernel --force-overwrite clobbers regulatory.db from wireless-regdb.
+# Reinstall it so WiFi doesn't fall back to passive-only scanning.
+apk fix wireless-regdb 2>/dev/null || true
 POST_INSTALL_BODY
-    
+
     chmod +x "${PKG_DIR}/raspios-kernel-${variant}.post-install"
+
+    # Create post-upgrade script (same wireless-regdb fix)
+    cat > "${PKG_DIR}/raspios-kernel-${variant}.post-upgrade" << 'POST_UPGRADE'
+#!/bin/sh
+# Kernel --force-overwrite clobbers regulatory.db from wireless-regdb.
+# Reinstall it so WiFi doesn't fall back to passive-only scanning.
+apk fix wireless-regdb 2>/dev/null || true
+POST_UPGRADE
+
+    chmod +x "${PKG_DIR}/raspios-kernel-${variant}.post-upgrade"
     
     # Create the APKBUILD - ONLY DEPENDS ON MKINITFS
     cat > "${PKG_DIR}/APKBUILD" << 'APKBUILD_HEADER'
@@ -342,7 +356,7 @@ provides="linux-kernel"
 makedepends=""
 subpackages=""
 source="raspios-kernel-${variant}.tar.gz"
-install="\$pkgname.post-install"
+install="\$pkgname.post-install \$pkgname.post-upgrade"
 options="!check !strip !tracedeps !fhs"
 
 unpack() {
