@@ -854,14 +854,14 @@ jobs:
         git config --global user.name 'github-actions[bot]'
         git config --global user.email 'github-actions[bot]@users.noreply.github.com'
         
-        git clone --branch gh-pages --single-branch \
-          https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git \
-          gh-pages || {
+        GH_PAGES_URL="https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
+        git clone --branch gh-pages --single-branch "$GH_PAGES_URL" gh-pages || {
           # Create if doesn't exist
           mkdir gh-pages
           cd gh-pages
           git init
           git checkout -b gh-pages
+          git remote add origin "$GH_PAGES_URL"
           cd ..
         }
         
@@ -906,8 +906,20 @@ jobs:
         ln -sf "RasPINE-${BUILD_DATE}.img.xz.sha256" "RasPINE-latest.img.xz.sha256"
         cd ../..
         
-        # Commit and push
+        # Commit and push with retry to handle concurrent gh-pages updates
         cd gh-pages
         git add .
         git commit -m "Update downloads for build ${BUILD_DATE}" || exit 0
-        git push origin gh-pages
+
+        for attempt in 1 2 3 4 5; do
+          if git push origin gh-pages; then
+            echo "Push succeeded on attempt $attempt"
+            break
+          fi
+          echo "Push failed (attempt $attempt), pulling and rebasing..."
+          git pull --rebase origin gh-pages
+          if [ "$attempt" = "5" ]; then
+            echo "ERROR: Failed to push after 5 attempts"
+            exit 1
+          fi
+        done

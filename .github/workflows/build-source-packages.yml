@@ -314,23 +314,16 @@ jobs:
         run: |
           echo "::group::Setting up gh-pages branch"
 
+          GH_PAGES_URL="https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
+
           if git ls-remote --heads origin gh-pages | grep -q gh-pages; then
             echo "Cloning existing gh-pages branch..."
-            git clone --branch gh-pages --depth 1 \
-              https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git \
-              deploy
+            git clone --branch gh-pages --single-branch "$GH_PAGES_URL" deploy
 
             cd deploy
 
             echo "Current repository size: $(du -sh . | cut -f1)"
             echo "APK files: $(find . -name '*.apk' | wc -l)"
-
-            # Clean up .git for fresh push
-            if [ -d .git ]; then
-              rm -rf .git
-              git init
-              git checkout -b gh-pages
-            fi
 
             cd ..
           else
@@ -339,6 +332,7 @@ jobs:
             cd deploy
             git init
             git checkout -b gh-pages
+            git remote add origin "$GH_PAGES_URL"
             cd ..
           fi
 
@@ -561,7 +555,20 @@ jobs:
           Size: ${TOTAL_SIZE_MB}MB
           Packages: ${TOTAL_PACKAGES}"
 
-          git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git gh-pages --force
+          # Push with retry to handle concurrent gh-pages updates
+          GH_PAGES_URL="https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
+          for attempt in 1 2 3 4 5; do
+            if git push "$GH_PAGES_URL" gh-pages; then
+              echo "Push succeeded on attempt $attempt"
+              break
+            fi
+            echo "Push failed (attempt $attempt), pulling and rebasing..."
+            git pull --rebase "$GH_PAGES_URL" gh-pages
+            if [ "$attempt" = "5" ]; then
+              echo "ERROR: Failed to push after 5 attempts"
+              exit 1
+            fi
+          done
 
           cd ..
 
