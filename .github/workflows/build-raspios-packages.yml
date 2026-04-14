@@ -175,15 +175,17 @@ jobs:
       - name: Clone or create gh-pages branch
         run: |
           echo "::group::Setting up gh-pages branch"
-          
+
+          GH_PAGES_URL="https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
+
           if git ls-remote --heads origin gh-pages | grep -q gh-pages; then
             echo "Cloning existing gh-pages branch..."
             git clone --branch gh-pages --depth 1 \
               https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git \
               deploy
-            
+
             cd deploy
-            
+
             # Diagnose what's taking up space
             echo ""
             echo "=== REPOSITORY SIZE ANALYSIS ==="
@@ -192,35 +194,24 @@ jobs:
             echo "Top level directories:"
             du -sh * 2>/dev/null | sort -rh || true
             echo ""
-            echo "All directories over 10MB:"
-            find . -type d -exec du -sm {} \; 2>/dev/null | awk '$1 >= 10' | sort -rn | head -20
-            echo ""
-            echo "Largest files:"
-            find . -type f -exec du -h {} \; 2>/dev/null | sort -rh | head -20
-            echo ""
             echo "File count by type:"
             echo "  APK files: $(find . -name '*.apk' | wc -l)"
             echo "  APKINDEX files: $(find . -name 'APKINDEX.tar.gz' | wc -l)"
             echo "  Other files: $(find . -type f ! -name '*.apk' ! -name 'APKINDEX.tar.gz' | wc -l)"
             echo ""
-            
-            # Check for .git directory
-            if [ -d .git ]; then
-              GIT_SIZE=$(du -sh .git | cut -f1)
-              echo "WARNING: .git directory exists and is ${GIT_SIZE}!"
-              echo "Removing .git directory..."
-              rm -rf .git
-              git init
-              git checkout -b gh-pages
-            fi
-            
+
+            # Re-init git for clean orphan push
+            rm -rf .git
+            git init
+            git checkout -b gh-pages
+
             # Remove any backup or temp files
             echo "Cleaning up unnecessary files..."
             find . -name '*.bak' -o -name '*.tmp' -o -name '*.old' -o -name '*~' | xargs -r rm -f
-            
+
             # Remove any duplicate or old APKINDEX files
             find . -name 'APKINDEX.unsigned.tar.gz' -o -name 'APKINDEX.*.tar.gz' | xargs -r rm -f
-            
+
             cd ..
           else
             echo "Creating new gh-pages branch..."
@@ -230,7 +221,7 @@ jobs:
             git checkout -b gh-pages
             cd ..
           fi
-          
+
           echo "::endgroup::"
 
       - name: Aggressive cleanup of existing packages
@@ -530,10 +521,10 @@ jobs:
           fi
           
           git commit -m "Deploy packages - $(date +'%Y-%m-%d %H:%M:%S UTC')
-          
+
           Size: ${TOTAL_SIZE_MB}MB
           Packages: ${TOTAL_PACKAGES}"
-          
+
           git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git gh-pages --force
           
           cd ..

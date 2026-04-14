@@ -717,14 +717,22 @@
         <div class="download-section">
             <h2 style="color: var(--mountain-blue); font-size: 2em; margin-bottom: 10px;">📥 Download RasPINE</h2>
             <p style="opacity: 0.9; margin-bottom: 30px;">Get the latest hybrid OS image for your Raspberry Pi</p>
-            
+
             <div class="download-buttons">
                 <a href="/downloads/RasPINE-latest.img.xz.html" class="download-btn">
                     <svg width="20" height="20" fill="currentColor" viewBox="0 0 20 20">
                         <path d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z"/>
                     </svg>
-                    Download Latest Image
+                    Download armhf (All Models)
                 </a>
+                <a href="/downloads/RasPINE-aarch64-latest.img.xz.html" class="download-btn">
+                    <svg width="20" height="20" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z"/>
+                    </svg>
+                    Download aarch64 (Pi 3+)
+                </a>
+            </div>
+            <div style="margin-top: 10px;">
                 <a href="https://github.com/MW0MWZ/RasPINE/releases" class="download-btn secondary">
                     <svg width="20" height="20" fill="currentColor" viewBox="0 0 20 20">
                         <path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z"/>
@@ -754,8 +762,11 @@
             </div>
 
             <p style="margin-top: 20px; opacity: 0.8;">
-                <a href="/downloads/RasPINE-latest.img.xz.sha256" style="color: var(--mountain-blue);">SHA256 Checksum</a> | 
+                armhf: <a href="/downloads/RasPINE-latest.img.xz.sha256" style="color: var(--mountain-blue);">SHA256</a> |
                 <a href="/downloads/RasPINE-latest.info.txt" style="color: var(--mountain-blue);">Build Info</a>
+                &nbsp;&nbsp;
+                aarch64: <a href="/downloads/RasPINE-aarch64-latest.img.xz.sha256" style="color: var(--mountain-blue);">SHA256</a> |
+                <a href="/downloads/RasPINE-aarch64-latest.info.txt" style="color: var(--mountain-blue);">Build Info</a>
             </p>
         </div>
 
@@ -947,6 +958,9 @@ wifi_country=GB</pre>
         </div>
 
         <h2 class="section-title">🥧 Compatible Raspberry Pi Models</h2>
+        <p style="text-align: center; opacity: 0.9; margin-bottom: 20px;">
+            <strong>armhf image</strong> — 32-bit userland with 64-bit kernel on Pi 3+. Supports <strong>every Pi model ever made</strong>.
+        </p>
         <div class="compatibility-grid">
             <div class="pi-model">
                 <div class="pi-model-name">Pi 1</div>
@@ -981,12 +995,62 @@ wifi_country=GB</pre>
                 <div class="pi-model-desc">Latest Model</div>
             </div>
             <div class="pi-model">
+                <div class="pi-model-name">Pi 500</div>
+                <div class="pi-model-desc">Keyboard Computer</div>
+            </div>
+            <div class="pi-model">
                 <div class="pi-model-name">CM1/3/3+</div>
                 <div class="pi-model-desc">Compute Module</div>
             </div>
             <div class="pi-model">
                 <div class="pi-model-name">CM4/4S</div>
                 <div class="pi-model-desc">Compute Module 4</div>
+            </div>
+            <div class="pi-model">
+                <div class="pi-model-name">CM5</div>
+                <div class="pi-model-desc">Compute Module 5</div>
+            </div>
+        </div>
+
+        <p style="text-align: center; opacity: 0.9; margin-top: 30px; margin-bottom: 20px;">
+            <strong>aarch64 image</strong> — fully native 64-bit build with dedicated Pi 5 kernel. For <strong>Pi 3 and later</strong>.
+        </p>
+        <div class="compatibility-grid">
+            <div class="pi-model">
+                <div class="pi-model-name">Pi Zero 2</div>
+                <div class="pi-model-desc">Zero 2 W</div>
+            </div>
+            <div class="pi-model">
+                <div class="pi-model-name">Pi 3</div>
+                <div class="pi-model-desc">Model A+/B/B+</div>
+            </div>
+            <div class="pi-model">
+                <div class="pi-model-name">Pi 4</div>
+                <div class="pi-model-desc">Model B</div>
+            </div>
+            <div class="pi-model">
+                <div class="pi-model-name">Pi 400</div>
+                <div class="pi-model-desc">Keyboard Computer</div>
+            </div>
+            <div class="pi-model">
+                <div class="pi-model-name">Pi 5</div>
+                <div class="pi-model-desc">Latest Model</div>
+            </div>
+            <div class="pi-model">
+                <div class="pi-model-name">Pi 500</div>
+                <div class="pi-model-desc">Keyboard Computer</div>
+            </div>
+            <div class="pi-model">
+                <div class="pi-model-name">CM3/3+</div>
+                <div class="pi-model-desc">Compute Module</div>
+            </div>
+            <div class="pi-model">
+                <div class="pi-model-name">CM4/4S</div>
+                <div class="pi-model-desc">Compute Module 4</div>
+            </div>
+            <div class="pi-model">
+                <div class="pi-model-name">CM5</div>
+                <div class="pi-model-desc">Compute Module 5</div>
             </div>
         </div>
 
@@ -1044,7 +1108,7 @@ wifi_country=GB</pre>
                 </tr>
                 <tr>
                     <td>Userland</td>
-                    <td>Alpine Linux 3.23 (armv6/armhf)</td>
+                    <td>Alpine Linux 3.23 (armhf + aarch64)</td>
                 </tr>
                 <tr>
                     <td>Init System</td>

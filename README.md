@@ -172,14 +172,29 @@ locale=en_GB.UTF-8
 
 ## 🥧 Compatibility
 
-RasPINE works with **ALL** Raspberry Pi models:
+RasPINE is available in two image variants:
+
+### RasPINE (armhf) — All Models
+
+The standard image supports **every Raspberry Pi ever made**, from the original Pi 1 through to the Pi 5. It uses a 32-bit (armhf) userland with a 64-bit (aarch64) kernel on Pi 3 and later models.
 
 | Series | Models |
 |--------|--------|
 | **Classic** | Pi 1 Model A/B/B+ |
 | **Zero** | Pi Zero, Zero W, Zero 2 W |
 | **Standard** | Pi 2B, 3A+/B/B+, 4B, 5 |
-| **Compute** | CM1, CM3, CM3+, CM4, CM4S |
+| **Compute** | CM1, CM3, CM3+, CM4, CM4S, CM5 |
+| **Special** | Pi 400, Pi 500 |
+
+### RasPINE-aarch64 — Pi 3 and Later
+
+The aarch64 image is a fully native 64-bit build for newer Pi models. It includes the v8 kernel for Pi 3/4 and the dedicated Pi 5 (2712) kernel.
+
+| Series | Models |
+|--------|--------|
+| **Zero** | Pi Zero 2 W |
+| **Standard** | Pi 3A+/B/B+, 4B, 5 |
+| **Compute** | CM3, CM3+, CM4, CM4S, CM5 |
 | **Special** | Pi 400, Pi 500 |
 
 ## 📡 Network Configuration

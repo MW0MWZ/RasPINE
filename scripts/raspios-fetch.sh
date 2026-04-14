@@ -109,7 +109,7 @@ if [ "$PACKAGE_TYPES" = "all" ] || [ "$PACKAGE_TYPES" = "kernel-only" ]; then
   for variant in $VARIANTS; do
     # Meta packages
     PACKAGES_TO_DOWNLOAD="$PACKAGES_TO_DOWNLOAD linux-image-rpi-${variant} linux-headers-rpi-${variant}"
-    
+
     # Versioned packages
     if [ -n "$KERNEL_VERSION" ]; then
       PACKAGES_TO_DOWNLOAD="$PACKAGES_TO_DOWNLOAD linux-image-${KERNEL_VERSION}-rpi-${variant}"

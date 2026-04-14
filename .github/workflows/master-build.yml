@@ -189,8 +189,8 @@ jobs:
       run: |
         echo "::group::Waiting for repository deployment"
         
-        echo "Waiting 30 seconds for GitHub Pages to start deployment..."
-        sleep 30
+        echo "Waiting 5 minutes for GitHub Pages deployment and cache propagation..."
+        sleep 300
         
         # Maximum wait time: 5 minutes (20 attempts × 15 seconds)
         MAX_ATTEMPTS=20

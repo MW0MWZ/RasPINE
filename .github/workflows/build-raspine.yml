@@ -12,7 +12,6 @@ on:
 
 env:
   ALPINE_VERSION: "3.23"
-  ALPINE_ARCH: "armhf"
   IMAGE_SIZE: "2G"
   BOOT_SIZE: "256M"
 
@@ -21,9 +20,17 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: write
+    strategy:
+      matrix:
+        include:
+          - arch: armhf
+            qemu_binary: qemu-arm-static
+            image_prefix: "RasPINE"
+          - arch: aarch64
+            qemu_binary: qemu-aarch64-static
+            image_prefix: "RasPINE-aarch64"
     outputs:
       build_date: ${{ steps.set-date.outputs.date }}
-      image_name: ${{ steps.set-date.outputs.image_name }}
     
     steps:
     - name: Checkout repository
@@ -33,9 +40,12 @@ jobs:
       id: set-date
       run: |
         BUILD_DATE=$(date +'%Y-%m-%d')
+        IMAGE_PREFIX="${{ matrix.image_prefix }}"
         echo "date=$BUILD_DATE" >> $GITHUB_OUTPUT
-        echo "image_name=RasPINE-$BUILD_DATE.img.xz" >> $GITHUB_OUTPUT
+        echo "image_name=${IMAGE_PREFIX}-${BUILD_DATE}.img.xz" >> $GITHUB_OUTPUT
         echo "BUILD_DATE=$BUILD_DATE" >> $GITHUB_ENV
+        echo "IMAGE_PREFIX=$IMAGE_PREFIX" >> $GITHUB_ENV
+        echo "ALPINE_ARCH=${{ matrix.arch }}" >> $GITHUB_ENV
 
     - name: Install build dependencies
       run: |
@@ -154,8 +164,8 @@ jobs:
         sudo tar -xzf "${ALPINE_FILE}" -C /mnt/root/
         
         # Copy QEMU static binary for chroot
-        echo "Setting up QEMU for ARM emulation..."
-        sudo cp /usr/bin/qemu-arm-static /mnt/root/usr/bin/
+        echo "Setting up QEMU for ${{ matrix.arch }} emulation..."
+        sudo cp /usr/bin/${{ matrix.qemu_binary }} /mnt/root/usr/bin/
         
         echo "✓ Alpine rootfs installation complete"
 
@@ -236,11 +246,18 @@ jobs:
         rm -d /lib/modules 2>/dev/null || true
         ln -sf /usr/lib/modules /lib/modules
         echo "Installing Raspberry Pi kernels from RasPINE repo..."
-        apk add --no-cache --force-overwrite \
-          raspios-firmware \
-          raspios-kernel-v6 \
-          raspios-kernel-v7 \
-          raspios-kernel-v8
+        if [ "$ALPINE_ARCH" = "aarch64" ]; then
+          apk add --no-cache --force-overwrite \
+            raspios-firmware \
+            raspios-kernel-v8 \
+            raspios-kernel-2712
+        else
+          apk add --no-cache --force-overwrite \
+            raspios-firmware \
+            raspios-kernel-v6 \
+            raspios-kernel-v7 \
+            raspios-kernel-v8
+        fi
         
         # Update CA certificates to fix SSL/TLS issues
         echo "Updating CA certificates..."
@@ -488,6 +505,13 @@ jobs:
             exit 1
         fi
         
+        # Use aarch64 config.txt if building for aarch64
+        if [ "${{ matrix.arch }}" = "aarch64" ]; then
+            echo "Overwriting config.txt with aarch64 version..."
+            sudo cp packages/raspios-firmware/config-aarch64.txt /mnt/boot/config.txt
+            echo "  - config.txt: $(head -1 /mnt/boot/config.txt)"
+        fi
+
         echo "✓ Boot partition configured with files from raspios-firmware package"
 
     - name: Create boot configuration system
@@ -748,7 +772,7 @@ jobs:
     - name: Cleanup and unmount
       run: |
         # Remove QEMU static binary
-        sudo rm -f /mnt/root/usr/bin/qemu-arm-static
+        sudo rm -f /mnt/root/usr/bin/${{ matrix.qemu_binary }}
         
         # Sync and unmount
         sync
@@ -760,39 +784,45 @@ jobs:
       run: |
         echo "Compressing image..."
         xz -9 -T0 raspine.img
-        mv raspine.img.xz "RasPINE-${BUILD_DATE}.img.xz"
-        
+        mv raspine.img.xz "${IMAGE_PREFIX}-${BUILD_DATE}.img.xz"
+
         # Generate checksums
-        sha256sum "RasPINE-${BUILD_DATE}.img.xz" > "RasPINE-${BUILD_DATE}.img.xz.sha256"
-        
+        sha256sum "${IMAGE_PREFIX}-${BUILD_DATE}.img.xz" > "${IMAGE_PREFIX}-${BUILD_DATE}.img.xz.sha256"
+
         # Create info file
-        cat > "RasPINE-${BUILD_DATE}.info.txt" << EOF
+        if [ "${{ matrix.arch }}" = "aarch64" ]; then
+          COMPAT_NOTE="Compatible with Raspberry Pi 3, 3+, Zero 2, 4, CM4, 5, and CM5."
+        else
+          COMPAT_NOTE="Compatible with all Raspberry Pi models."
+        fi
+
+        cat > "${IMAGE_PREFIX}-${BUILD_DATE}.info.txt" << EOF
         RasPINE Hybrid Image
         ====================
         Build Date: ${BUILD_DATE}
         Alpine Version: ${ALPINE_VERSION}
         Architecture: ${ALPINE_ARCH}
-        Image Size: $(du -h "RasPINE-${BUILD_DATE}.img.xz" | cut -f1)
-        SHA256: $(cut -d' ' -f1 < "RasPINE-${BUILD_DATE}.img.xz.sha256")
-        
+        Image Size: $(du -h "${IMAGE_PREFIX}-${BUILD_DATE}.img.xz" | cut -f1)
+        SHA256: $(cut -d' ' -f1 < "${IMAGE_PREFIX}-${BUILD_DATE}.img.xz.sha256")
+
         Default Credentials:
         Username: raspine
         Password: raspberry
-        
+
         Network: DHCP on eth0
         SSH: Enabled (Dropbear)
-        
-        Compatible with all Raspberry Pi models.
+
+        ${COMPAT_NOTE}
         EOF
 
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: RasPINE-${{ env.BUILD_DATE }}
+        name: ${{ matrix.image_prefix }}-${{ env.BUILD_DATE }}
         path: |
-          RasPINE-*.img.xz
-          RasPINE-*.img.xz.sha256
-          RasPINE-*.info.txt
+          ${{ matrix.image_prefix }}-*.img.xz
+          ${{ matrix.image_prefix }}-*.img.xz.sha256
+          ${{ matrix.image_prefix }}-*.info.txt
         retention-days: 90
 
     - name: Create Release
@@ -805,17 +835,18 @@ jobs:
         draft: false
         prerelease: false
         files: |
-          RasPINE-*.img.xz
-          RasPINE-*.img.xz.sha256
-          RasPINE-*.info.txt
+          ${{ matrix.image_prefix }}-*.img.xz
+          ${{ matrix.image_prefix }}-*.img.xz.sha256
+          ${{ matrix.image_prefix }}-*.info.txt
         body: |
           # RasPINE Hybrid Image - ${{ env.BUILD_DATE }}
-          
+
           Raspberry Pi OS kernel/firmware with Alpine Linux ${{ env.ALPINE_VERSION }} userland.
-          
+
           ## Download
-          [Download RasPINE-${{ env.BUILD_DATE }}.img.xz](https://github.com/${{ github.repository }}/releases/download/v${{ env.BUILD_DATE }}/RasPINE-${{ env.BUILD_DATE }}.img.xz)
-          
+          - [RasPINE-${{ env.BUILD_DATE }}.img.xz](https://github.com/${{ github.repository }}/releases/download/v${{ env.BUILD_DATE }}/RasPINE-${{ env.BUILD_DATE }}.img.xz) (armhf - all Pi models)
+          - [RasPINE-aarch64-${{ env.BUILD_DATE }}.img.xz](https://github.com/${{ github.repository }}/releases/download/v${{ env.BUILD_DATE }}/RasPINE-aarch64-${{ env.BUILD_DATE }}.img.xz) (aarch64 - Pi 3+)
+
           ## Verification
           Check the SHA256 checksum before use.
       env:
@@ -843,19 +874,21 @@ jobs:
     - name: Download build artifacts
       uses: actions/download-artifact@v4
       with:
-        name: RasPINE-${{ needs.build.outputs.build_date }}
+        pattern: RasPINE-*
         path: build-artifacts/
+        merge-multiple: true
 
     - name: Update gh-pages
       run: |
         BUILD_DATE="${{ needs.build.outputs.build_date }}"
-        
+        REPO="${{ github.repository }}"
+
         # Clone gh-pages
         git config --global user.name 'github-actions[bot]'
         git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-        
-        git clone --branch gh-pages --single-branch \
-          https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git \
+
+        git clone --branch gh-pages --depth 1 \
+          https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${REPO}.git \
           gh-pages || {
           # Create if doesn't exist
           mkdir gh-pages
@@ -864,50 +897,61 @@ jobs:
           git checkout -b gh-pages
           cd ..
         }
-        
+
+        # Re-init git for clean orphan push
+        cd gh-pages
+        rm -rf .git
+        git init
+        git checkout -b gh-pages
+        cd ..
+
         # Clean up old RasPINE files in downloads directory
-        # This removes all RasPINE-YYYY-MM-DD.* files except symlinks
         if [ -d "gh-pages/downloads" ]; then
           echo "Cleaning up old RasPINE builds..."
           cd gh-pages/downloads
-          
-          # Remove all date-specific RasPINE files (but not the -latest symlinks)
-          find . -maxdepth 1 -type f -name "RasPINE-[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9].*" -delete
-          
-          # Also remove any broken symlinks
+          find . -maxdepth 1 -type f -name "RasPINE*-[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9].*" -delete
           find . -maxdepth 1 -type l ! -exec test -e {} \; -delete
-          
           cd ../..
           echo "Old builds cleaned up"
         fi
-        
+
         # Update downloads
         mkdir -p gh-pages/downloads
         cp build-artifacts/*.info.txt gh-pages/downloads/
         cp build-artifacts/*.sha256 gh-pages/downloads/
-        
-        # Create redirect page
-        echo '<!DOCTYPE html>' > gh-pages/downloads/RasPINE-${BUILD_DATE}.img.xz.html
-        echo '<html>' >> gh-pages/downloads/RasPINE-${BUILD_DATE}.img.xz.html
-        echo '<head>' >> gh-pages/downloads/RasPINE-${BUILD_DATE}.img.xz.html
-        echo '    <meta charset="UTF-8">' >> gh-pages/downloads/RasPINE-${BUILD_DATE}.img.xz.html
-        echo "    <title>Downloading RasPINE-${BUILD_DATE}.img.xz</title>" >> gh-pages/downloads/RasPINE-${BUILD_DATE}.img.xz.html
-        echo "    <meta http-equiv=\"refresh\" content=\"0; url=https://github.com/${{ github.repository }}/releases/download/v${BUILD_DATE}/RasPINE-${BUILD_DATE}.img.xz\">" >> gh-pages/downloads/RasPINE-${BUILD_DATE}.img.xz.html
-        echo '</head>' >> gh-pages/downloads/RasPINE-${BUILD_DATE}.img.xz.html
-        echo '<body>' >> gh-pages/downloads/RasPINE-${BUILD_DATE}.img.xz.html
-        echo '    <p>Redirecting to download...</p>' >> gh-pages/downloads/RasPINE-${BUILD_DATE}.img.xz.html
-        echo '</body>' >> gh-pages/downloads/RasPINE-${BUILD_DATE}.img.xz.html
-        echo '</html>' >> gh-pages/downloads/RasPINE-${BUILD_DATE}.img.xz.html
-        
-        # Update symlinks (using force to overwrite existing)
-        cd gh-pages/downloads
-        ln -sf "RasPINE-${BUILD_DATE}.img.xz.html" "RasPINE-latest.img.xz.html"
-        ln -sf "RasPINE-${BUILD_DATE}.info.txt" "RasPINE-latest.info.txt"
-        ln -sf "RasPINE-${BUILD_DATE}.img.xz.sha256" "RasPINE-latest.img.xz.sha256"
-        cd ../..
-        
+
+        # Create redirect pages and symlinks for each image
+        for PREFIX in RasPINE RasPINE-aarch64; do
+          IMAGE_FILE="${PREFIX}-${BUILD_DATE}.img.xz"
+
+          # Only create redirect if the info file exists for this prefix
+          if [ -f "build-artifacts/${PREFIX}-${BUILD_DATE}.info.txt" ]; then
+            echo "Creating redirect for ${IMAGE_FILE}..."
+            cat > "gh-pages/downloads/${IMAGE_FILE}.html" << REDIRECT
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <title>Downloading ${IMAGE_FILE}</title>
+            <meta http-equiv="refresh" content="0; url=https://github.com/${REPO}/releases/download/v${BUILD_DATE}/${IMAGE_FILE}">
+        </head>
+        <body>
+            <p>Redirecting to download...</p>
+        </body>
+        </html>
+        REDIRECT
+
+            # Update symlinks
+            cd gh-pages/downloads
+            ln -sf "${PREFIX}-${BUILD_DATE}.img.xz.html" "${PREFIX}-latest.img.xz.html"
+            ln -sf "${PREFIX}-${BUILD_DATE}.info.txt" "${PREFIX}-latest.info.txt"
+            ln -sf "${PREFIX}-${BUILD_DATE}.img.xz.sha256" "${PREFIX}-latest.img.xz.sha256"
+            cd ../..
+          fi
+        done
+
         # Commit and push
         cd gh-pages
         git add .
         git commit -m "Update downloads for build ${BUILD_DATE}" || exit 0
-        git push origin gh-pages
+        git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${REPO}.git gh-pages --force
