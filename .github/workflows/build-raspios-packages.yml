@@ -180,7 +180,7 @@ jobs:
 
           if git ls-remote --heads origin gh-pages | grep -q gh-pages; then
             echo "Cloning existing gh-pages branch..."
-            git clone --branch gh-pages --single-branch "$GH_PAGES_URL" deploy
+            git clone --branch gh-pages --depth 1 "$GH_PAGES_URL" deploy
 
             cd deploy
 
@@ -519,20 +519,9 @@ jobs:
           Size: ${TOTAL_SIZE_MB}MB
           Packages: ${TOTAL_PACKAGES}"
 
-          # Push with retry to handle concurrent gh-pages updates
+          # Force push (shallow clone cannot rebase)
           GH_PAGES_URL="https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
-          for attempt in 1 2 3 4 5; do
-            if git push "$GH_PAGES_URL" gh-pages; then
-              echo "Push succeeded on attempt $attempt"
-              break
-            fi
-            echo "Push failed (attempt $attempt), pulling and rebasing..."
-            git pull --rebase "$GH_PAGES_URL" gh-pages
-            if [ "$attempt" = "5" ]; then
-              echo "ERROR: Failed to push after 5 attempts"
-              exit 1
-            fi
-          done
+          git push "$GH_PAGES_URL" gh-pages --force
           
           cd ..
           

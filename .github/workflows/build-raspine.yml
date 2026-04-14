@@ -888,7 +888,7 @@ jobs:
         git config --global user.email 'github-actions[bot]@users.noreply.github.com'
 
         GH_PAGES_URL="https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${REPO}.git"
-        git clone --branch gh-pages --single-branch "$GH_PAGES_URL" gh-pages || {
+        git clone --branch gh-pages --depth 1 "$GH_PAGES_URL" gh-pages || {
           # Create if doesn't exist
           mkdir gh-pages
           cd gh-pages
@@ -943,20 +943,8 @@ jobs:
           fi
         done
 
-        # Commit and push with retry to handle concurrent gh-pages updates
+        # Commit and force push (shallow clone cannot rebase)
         cd gh-pages
         git add .
         git commit -m "Update downloads for build ${BUILD_DATE}" || exit 0
-
-        for attempt in 1 2 3 4 5; do
-          if git push origin gh-pages; then
-            echo "Push succeeded on attempt $attempt"
-            break
-          fi
-          echo "Push failed (attempt $attempt), pulling and rebasing..."
-          git pull --rebase origin gh-pages
-          if [ "$attempt" = "5" ]; then
-            echo "ERROR: Failed to push after 5 attempts"
-            exit 1
-          fi
-        done
+        git push origin gh-pages --force
