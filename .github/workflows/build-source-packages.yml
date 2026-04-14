@@ -314,16 +314,23 @@ jobs:
         run: |
           echo "::group::Setting up gh-pages branch"
 
-          GH_PAGES_URL="https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
-
           if git ls-remote --heads origin gh-pages | grep -q gh-pages; then
             echo "Cloning existing gh-pages branch..."
-            git clone --branch gh-pages --depth 1 "$GH_PAGES_URL" deploy
+            git clone --branch gh-pages --depth 1 \
+              https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git \
+              deploy
 
             cd deploy
 
             echo "Current repository size: $(du -sh . | cut -f1)"
             echo "APK files: $(find . -name '*.apk' | wc -l)"
+
+            # Clean up .git for fresh push
+            if [ -d .git ]; then
+              rm -rf .git
+              git init
+              git checkout -b gh-pages
+            fi
 
             cd ..
           else
@@ -332,7 +339,6 @@ jobs:
             cd deploy
             git init
             git checkout -b gh-pages
-            git remote add origin "$GH_PAGES_URL"
             cd ..
           fi
 
@@ -555,9 +561,7 @@ jobs:
           Size: ${TOTAL_SIZE_MB}MB
           Packages: ${TOTAL_PACKAGES}"
 
-          # Force push (shallow clone cannot rebase)
-          GH_PAGES_URL="https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
-          git push "$GH_PAGES_URL" gh-pages --force
+          git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git gh-pages --force
 
           cd ..
 

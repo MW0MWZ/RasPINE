@@ -887,16 +887,23 @@ jobs:
         git config --global user.name 'github-actions[bot]'
         git config --global user.email 'github-actions[bot]@users.noreply.github.com'
 
-        GH_PAGES_URL="https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${REPO}.git"
-        git clone --branch gh-pages --depth 1 "$GH_PAGES_URL" gh-pages || {
+        git clone --branch gh-pages --depth 1 \
+          https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${REPO}.git \
+          gh-pages || {
           # Create if doesn't exist
           mkdir gh-pages
           cd gh-pages
           git init
           git checkout -b gh-pages
-          git remote add origin "$GH_PAGES_URL"
           cd ..
         }
+
+        # Re-init git for clean orphan push
+        cd gh-pages
+        rm -rf .git
+        git init
+        git checkout -b gh-pages
+        cd ..
 
         # Clean up old RasPINE files in downloads directory
         if [ -d "gh-pages/downloads" ]; then
@@ -943,8 +950,8 @@ jobs:
           fi
         done
 
-        # Commit and force push (shallow clone cannot rebase)
+        # Commit and push
         cd gh-pages
         git add .
         git commit -m "Update downloads for build ${BUILD_DATE}" || exit 0
-        git push origin gh-pages --force
+        git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${REPO}.git gh-pages --force
