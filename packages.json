@@ -1,0 +1,7 @@
+{
+  "repository": "RasPINE APK Repository",
+  "updated": "2026-06-08T06:44:12Z",
+  "alpine_versions": ["3.23", "3.22"],
+  "architectures": ["armhf", "aarch64"],
+  "kernel_version": "6.18.33+rpt"
+}
