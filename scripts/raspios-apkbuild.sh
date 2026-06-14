@@ -327,14 +327,14 @@ POST_INSTALL_BODY
 
     chmod +x "${PKG_DIR}/raspios-kernel-${variant}.post-install"
 
-    # Create post-upgrade script (same wireless-regdb fix)
-    cat > "${PKG_DIR}/raspios-kernel-${variant}.post-upgrade" << 'POST_UPGRADE'
-#!/bin/sh
-# Kernel --force-overwrite clobbers regulatory.db from wireless-regdb.
-# Reinstall it so WiFi doesn't fall back to passive-only scanning.
-apk fix wireless-regdb 2>/dev/null || true
-POST_UPGRADE
-
+    # Create post-upgrade script — must be identical to post-install.
+    # apk runs post-install only on fresh install and post-upgrade only on
+    # upgrade, so the upgrade path needs the same work: copy the new kernel
+    # image to /boot/firmware/kernelN.img and re-run depmod. Without this,
+    # `apk upgrade` refreshes the modules and firmware but leaves the old
+    # kernel image booting against deleted modules (no display, no WiFi).
+    cp "${PKG_DIR}/raspios-kernel-${variant}.post-install" \
+       "${PKG_DIR}/raspios-kernel-${variant}.post-upgrade"
     chmod +x "${PKG_DIR}/raspios-kernel-${variant}.post-upgrade"
     
     # Create the APKBUILD - ONLY DEPENDS ON MKINITFS
