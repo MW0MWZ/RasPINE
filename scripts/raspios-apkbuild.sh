@@ -113,47 +113,82 @@ if [ -f "${OUTPUT_DIR}/raspios-firmware.tar.gz" ]; then
     CONFIG_FILES="${CONFIG_FILES} cmdline.txt"
   fi
 
-  # config.txt/cmdline.txt are per-device boot config. The package must not
-  # own them (apk overwrites owned files on every upgrade, clobbering a
-  # downstream/user boot config). Instead ship them as defaults under
-  # /usr/share and place them only when missing via install scriptlets.
-  # post-install and post-upgrade are identical (create-if-missing) so the
-  # behaviour is the same on first install, every upgrade, and the one-time
-  # transition where these files stop being package-owned.
+  # config.txt/cmdline.txt are per-device boot config and must not be owned
+  # by the package — apk overwrites or (when ownership is dropped) removes
+  # owned files on upgrade, wiping a downstream/user boot config. They are
+  # shipped as defaults under /usr/share and materialised into /boot/firmware
+  # by install scriptlets that never clobber an existing config:
+  #   - pre-upgrade copies any live /boot/firmware config aside BEFORE apk's
+  #     commit removes the previously-owned copies (the one-time transition
+  #     where an older package still owned these paths);
+  #   - post-install/post-upgrade (identical) restore that preserved copy if
+  #     present, else seed the shipped default, else leave the file untouched.
   FIRMWARE_INSTALL_LINE=""
   if [ -n "$CONFIG_FILES" ]; then
-    FIRMWARE_INSTALL_LINE='install="raspios-firmware.post-install raspios-firmware.post-upgrade"'
+    FIRMWARE_INSTALL_LINE='install="raspios-firmware.pre-upgrade raspios-firmware.post-install raspios-firmware.post-upgrade"'
 
-    cat > "${PKG_DIR}/raspios-firmware.post-install" << 'FW_SCRIPTLET'
+    cat > "${PKG_DIR}/raspios-firmware.pre-upgrade" << 'FW_PREUP'
 #!/bin/sh
+# Preserve the live boot config before apk's commit removes any copies that
+# a previous package version owned. pre-upgrade runs before that commit, so
+# the real /boot/firmware files are still present here.
+set -e
+
+PRESERVE_DIR="/var/lib/raspios-firmware/preserve"
+FW_DIR="/boot/firmware"
+
+for name in config.txt cmdline.txt; do
+	if [ -f "${FW_DIR}/${name}" ]; then
+		mkdir -p "${PRESERVE_DIR}"
+		cp "${FW_DIR}/${name}" "${PRESERVE_DIR}/${name}"
+	fi
+done
+
+exit 0
+FW_PREUP
+
+    cat > "${PKG_DIR}/raspios-firmware.post-install" << 'FW_POST'
+#!/bin/sh
+# Materialise the boot config without ever clobbering an existing one:
+# restore a preserved copy (transition upgrade), else seed the shipped
+# default (fresh install), else leave the existing file untouched.
 set -e
 
 DEFAULT_DIR="/usr/share/raspios-firmware"
+PRESERVE_DIR="/var/lib/raspios-firmware/preserve"
 FW_DIR="/boot/firmware"
 
-place_if_missing() {
+materialise() {
 	name="$1"
-	# Never overwrite an existing boot config — only seed a default.
-	if [ -f "${DEFAULT_DIR}/${name}" ] && [ ! -e "${FW_DIR}/${name}" ]; then
+	if [ ! -e "${FW_DIR}/${name}" ]; then
 		mkdir -p "${FW_DIR}"
-		cp "${DEFAULT_DIR}/${name}" "${FW_DIR}/${name}"
-		echo "raspios-firmware: installed default ${name}"
+		if [ -f "${PRESERVE_DIR}/${name}" ]; then
+			cp "${PRESERVE_DIR}/${name}" "${FW_DIR}/${name}"
+			echo "raspios-firmware: restored existing ${name}"
+		elif [ -f "${DEFAULT_DIR}/${name}" ]; then
+			cp "${DEFAULT_DIR}/${name}" "${FW_DIR}/${name}"
+			echo "raspios-firmware: installed default ${name}"
+		fi
 	fi
+	rm -f "${PRESERVE_DIR}/${name}"
 	# Convenience symlink /boot/<name> -> firmware/<name> (rootfs side).
 	if [ -e "${FW_DIR}/${name}" ] && [ ! -e "/boot/${name}" ] && [ ! -L "/boot/${name}" ]; then
 		ln -sf "firmware/${name}" "/boot/${name}"
 	fi
 }
 
-place_if_missing config.txt
-place_if_missing cmdline.txt
+materialise config.txt
+materialise cmdline.txt
+
+rmdir "${PRESERVE_DIR}" 2>/dev/null || true
 
 exit 0
-FW_SCRIPTLET
+FW_POST
 
     cp "${PKG_DIR}/raspios-firmware.post-install" \
        "${PKG_DIR}/raspios-firmware.post-upgrade"
-    chmod +x "${PKG_DIR}/raspios-firmware.post-install" \
+    chmod +x "${PKG_DIR}/raspios-firmware.pre-upgrade" \
+             "${PKG_DIR}/raspios-firmware.post-install" \
              "${PKG_DIR}/raspios-firmware.post-upgrade"
   fi
 
