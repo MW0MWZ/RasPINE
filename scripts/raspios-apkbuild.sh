@@ -112,7 +112,51 @@ if [ -f "${OUTPUT_DIR}/raspios-firmware.tar.gz" ]; then
     cp "packages/raspios-firmware/cmdline.txt" "$PKG_DIR/"
     CONFIG_FILES="${CONFIG_FILES} cmdline.txt"
   fi
-  
+
+  # config.txt/cmdline.txt are per-device boot config. The package must not
+  # own them (apk overwrites owned files on every upgrade, clobbering a
+  # downstream/user boot config). Instead ship them as defaults under
+  # /usr/share and place them only when missing via install scriptlets.
+  # post-install and post-upgrade are identical (create-if-missing) so the
+  # behaviour is the same on first install, every upgrade, and the one-time
+  # transition where these files stop being package-owned.
+  FIRMWARE_INSTALL_LINE=""
+  if [ -n "$CONFIG_FILES" ]; then
+    FIRMWARE_INSTALL_LINE='install="raspios-firmware.post-install raspios-firmware.post-upgrade"'
+
+    cat > "${PKG_DIR}/raspios-firmware.post-install" << 'FW_SCRIPTLET'
+#!/bin/sh
+set -e
+
+DEFAULT_DIR="/usr/share/raspios-firmware"
+FW_DIR="/boot/firmware"
+
+place_if_missing() {
+	name="$1"
+	# Never overwrite an existing boot config — only seed a default.
+	if [ -f "${DEFAULT_DIR}/${name}" ] && [ ! -e "${FW_DIR}/${name}" ]; then
+		mkdir -p "${FW_DIR}"
+		cp "${DEFAULT_DIR}/${name}" "${FW_DIR}/${name}"
+		echo "raspios-firmware: installed default ${name}"
+	fi
+	# Convenience symlink /boot/<name> -> firmware/<name> (rootfs side).
+	if [ -e "${FW_DIR}/${name}" ] && [ ! -e "/boot/${name}" ] && [ ! -L "/boot/${name}" ]; then
+		ln -sf "firmware/${name}" "/boot/${name}"
+	fi
+}
+
+place_if_missing config.txt
+place_if_missing cmdline.txt
+
+exit 0
+FW_SCRIPTLET
+
+    cp "${PKG_DIR}/raspios-firmware.post-install" \
+       "${PKG_DIR}/raspios-firmware.post-upgrade"
+    chmod +x "${PKG_DIR}/raspios-firmware.post-install" \
+             "${PKG_DIR}/raspios-firmware.post-upgrade"
+  fi
+
   # Create APKBUILD - NO DEPENDENCIES
   cat > "${PKG_DIR}/APKBUILD" << 'APKBUILD_HEADER'
 # Maintainer: Andy Taylor <andy@mw0mwz.co.uk>
@@ -133,6 +177,7 @@ replaces="raspberry-pi-firmware"
 makedepends=""
 subpackages=""
 source="raspios-firmware.tar.gz${CONFIG_FILES}"
+${FIRMWARE_INSTALL_LINE}
 options="!check !strip !tracedeps !fhs"
 
 unpack() {
@@ -163,29 +208,19 @@ package() {
 		cd "\$srcdir"
 	fi
 	
-	# Install config files if present
+	# config.txt / cmdline.txt must NOT be owned by the package — apk would
+	# overwrite a downstream/user boot config on every upgrade. Drop any
+	# copies carried in the firmware tarball, and ship our defaults under
+	# /usr/share for the install scriptlets to place only when missing.
+	rm -f "\$pkgdir/boot/firmware/config.txt" "\$pkgdir/boot/firmware/cmdline.txt"
+	rm -f "\$pkgdir/boot/config.txt" "\$pkgdir/boot/cmdline.txt"
+
 	if [ -f "\$srcdir/config.txt" ]; then
-		install -Dm644 "\$srcdir/config.txt" "\$pkgdir/boot/firmware/config.txt"
+		install -Dm644 "\$srcdir/config.txt" "\$pkgdir/usr/share/raspios-firmware/config.txt"
 	fi
-	
+
 	if [ -f "\$srcdir/cmdline.txt" ]; then
-		install -Dm644 "\$srcdir/cmdline.txt" "\$pkgdir/boot/firmware/cmdline.txt"
-	fi
-	
-	# Create symlinks in /boot pointing to /boot/firmware
-	if [ -f "\$srcdir/config.txt" ] || [ -f "\$srcdir/cmdline.txt" ]; then
-		mkdir -p "\$pkgdir/boot"
-		cd "\$pkgdir/boot"
-		
-		if [ -f "\$pkgdir/boot/firmware/config.txt" ]; then
-			ln -sf firmware/config.txt config.txt
-		fi
-		
-		if [ -f "\$pkgdir/boot/firmware/cmdline.txt" ]; then
-			ln -sf firmware/cmdline.txt cmdline.txt
-		fi
-		
-		cd "\$srcdir"
+		install -Dm644 "\$srcdir/cmdline.txt" "\$pkgdir/usr/share/raspios-firmware/cmdline.txt"
 	fi
 	
 	# Ensure at least an empty package is created
