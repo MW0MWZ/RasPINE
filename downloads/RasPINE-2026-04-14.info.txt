@@ -1,0 +1,16 @@
+RasPINE Hybrid Image
+====================
+Build Date: 2026-04-14
+Alpine Version: 3.23
+Architecture: armhf
+Image Size: 158M
+SHA256: dad8439e78659fe9a19446adc147475dbdd7afd762d03b7bfd48e274c13e280a
+
+Default Credentials:
+Username: raspine
+Password: raspberry
+
+Network: DHCP on eth0
+SSH: Enabled (Dropbear)
+
+Compatible with all Raspberry Pi models.
