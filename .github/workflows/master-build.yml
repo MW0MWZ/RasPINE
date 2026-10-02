@@ -180,68 +180,36 @@ jobs:
       always() && 
       needs.build-packages.result == 'success'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: read
     outputs:
       repository_ready: ${{ steps.verify.outputs.ready }}
-    
+
     steps:
-    - name: Wait for GitHub Pages deployment
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Wait until raspine.pistar.uk serves the deployed packages
       id: verify
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+        CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        # The image build installs firmware and kernels for Alpine 3.23
+        ALPINE_VERSIONS: "3.23"
       run: |
-        echo "::group::Waiting for repository deployment"
-        
-        echo "Waiting 5 minutes for GitHub Pages deployment and cache propagation..."
-        sleep 300
-        
-        # Maximum wait time: 5 minutes (20 attempts × 15 seconds)
-        MAX_ATTEMPTS=20
-        ATTEMPT=0
-        REPO_READY=false
-        
-        while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
-          ATTEMPT=$((ATTEMPT + 1))
-          echo "Verification attempt $ATTEMPT/$MAX_ATTEMPTS..."
-          
-          # Check if the repository is accessible and has our packages
-          if curl -f -s -o /tmp/test-apkindex.tar.gz https://raspine.pistar.uk/v3.23/community/armhf/APKINDEX.tar.gz 2>/dev/null; then
-            # Verify it's actually an APKINDEX and has our packages
-            if tar -tzf /tmp/test-apkindex.tar.gz 2>/dev/null | grep -q APKINDEX; then
-              # Check if it contains our kernel packages
-              if tar -xzOf /tmp/test-apkindex.tar.gz APKINDEX 2>/dev/null | grep -q "^P:raspios-kernel"; then
-                echo "✅ Repository is ready with kernel packages!"
-                REPO_READY=true
-                rm -f /tmp/test-apkindex.tar.gz
-                break
-              else
-                echo "  APKINDEX exists but no kernel packages found yet..."
-              fi
-            else
-              echo "  File exists but is not a valid APKINDEX..."
-            fi
-            rm -f /tmp/test-apkindex.tar.gz
-          else
-            echo "  Repository not accessible yet..."
-          fi
-          
-          if [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
-            echo "  Waiting 15 seconds before next check..."
-            sleep 15
-          fi
-        done
-        
-        if [ "$REPO_READY" = "true" ]; then
-          echo "ready=true" >> $GITHUB_OUTPUT
-          
-          # Show what's in the repository
-          echo ""
-          echo "Repository contents:"
-          curl -s https://raspine.pistar.uk/v3.23/community/armhf/APKINDEX.tar.gz | \
-            tar -xzOf - APKINDEX | grep "^P:" | sort -u | head -10
+        # Waits for the GitHub Pages build of the deployed gh-pages commit,
+        # purges Cloudflare, and polls the live APKINDEX until it lists the
+        # versions on gh-pages. A fixed sleep wasn't enough: an index cached
+        # from before the Pages build lists package versions that no longer
+        # exist, and the image build then fails with 404s.
+        if scripts/wait-for-repo.sh; then
+          echo "ready=true" >> "$GITHUB_OUTPUT"
         else
-          echo "ready=false" >> $GITHUB_OUTPUT
-          echo "❌ Repository did not become ready after $MAX_ATTEMPTS attempts"
+          echo "ready=false" >> "$GITHUB_OUTPUT"
+          echo "::warning::raspine.pistar.uk did not serve the deployed packages in time; skipping the image build"
         fi
-        
-        echo "::endgroup::"
 
   check-image-needed:
     name: Check if Image Build Needed
@@ -299,6 +267,15 @@ jobs:
             else
               REASON="$REASON + New packages"
             fi
+          fi
+
+          # Packages were deployed in this run but the live repository isn't
+          # serving them yet: an image built now would fail on 404s.
+          if [ "${{ needs.build-packages.result }}" = "success" ] && \
+             [ "${{ needs.wait-for-repository.outputs.repository_ready }}" != "true" ]; then
+            echo "New packages are not being served yet - skipping image build"
+            BUILD_IMAGE=false
+            REASON="Repository not yet serving the new packages"
           fi
 
           # If we want to build, verify repository is accessible
