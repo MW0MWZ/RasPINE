@@ -83,6 +83,33 @@ get_release_number() {
 }
 
 # Build firmware package first if it exists
+# Shell function shared by the kernel and firmware install scripts: the
+# firmware's os_prefix for the running system. With os_prefix set (e.g.
+# "slotA/"), the firmware loads kernels, device trees, overlays and
+# cmdline.txt from under that prefix, so the install scripts must put them
+# there. After a tryboot boot (Pi 4/5) the firmware read tryboot.txt rather
+# than config.txt. Prints nothing when os_prefix is unset, in which case
+# files go to the root of the boot partition as before.
+OS_PREFIX_HELPER=$(cat << 'OS_PREFIX'
+boot_os_prefix() {
+	fw=/boot/firmware
+	cfg="$fw/config.txt"
+	# chosen/bootloader/tryboot is a big-endian u32, 1 after a tryboot boot
+	if [ -f "$fw/tryboot.txt" ] && \
+	   [ "$(od -An -tx1 /proc/device-tree/chosen/bootloader/tryboot 2>/dev/null | tr -d ' \n')" = "00000001" ]; then
+		cfg="$fw/tryboot.txt"
+	fi
+	prefix=$(sed -n 's/^[[:space:]]*os_prefix[[:space:]]*=[[:space:]]*//p' "$cfg" 2>/dev/null | \
+		tail -1 | tr -d '\r' | sed 's/[[:space:]]*$//')
+	# Only relative prefixes inside the boot partition
+	case "$prefix" in
+		/*|*..*) prefix="" ;;
+	esac
+	echo "$prefix"
+}
+OS_PREFIX
+)
+
 if [ -f "${OUTPUT_DIR}/raspios-firmware.tar.gz" ]; then
   # Use kernel version for firmware too
   FIRMWARE_VERSION="$PKG_VERSION"
@@ -123,6 +150,7 @@ if [ -f "${OUTPUT_DIR}/raspios-firmware.tar.gz" ]; then
   #     where an older package still owned these paths);
   #   - post-install/post-upgrade (identical) restore that preserved copy if
   #     present, else seed the shipped default, else leave the file untouched.
+
   FIRMWARE_INSTALL_LINE=""
   if [ -n "$CONFIG_FILES" ]; then
     FIRMWARE_INSTALL_LINE='install="raspios-firmware.pre-upgrade raspios-firmware.post-install raspios-firmware.post-upgrade"'
@@ -182,8 +210,34 @@ materialise cmdline.txt
 
 rmdir "${PRESERVE_DIR}" 2>/dev/null || true
 
+# With os_prefix set, the firmware reads device trees and overlays from
+# under the prefix; apk installs them at the root, so copy them across.
+# The overlays directory is swapped in with a rename.
+PREFIX=$(boot_os_prefix)
+if [ -n "$PREFIX" ]; then
+	dest="${FW_DIR}/${PREFIX}"
+	mkdir -p "$(dirname "${dest}x")"
+	for dtb in "${FW_DIR}"/*.dtb; do
+		[ -f "$dtb" ] && cp -f "$dtb" "${dest}${dtb##*/}"
+	done
+	if [ -d "${FW_DIR}/overlays" ]; then
+		rm -rf "${dest}overlays.new" "${dest}overlays.old"
+		cp -a "${FW_DIR}/overlays" "${dest}overlays.new"
+		[ -d "${dest}overlays" ] && mv "${dest}overlays" "${dest}overlays.old"
+		mv "${dest}overlays.new" "${dest}overlays"
+		rm -rf "${dest}overlays.old"
+	fi
+	sync
+	echo "raspios-firmware: installed device trees and overlays under ${PREFIX}"
+fi
+
 exit 0
 FW_POST
+
+    # Insert the os_prefix helper after the shebang/comment header
+    awk -v helper="$OS_PREFIX_HELPER" 'NR == 1 { print; print ""; print helper; next } { print }' \
+      "${PKG_DIR}/raspios-firmware.post-install" > "${PKG_DIR}/raspios-firmware.post-install.tmp"
+    mv "${PKG_DIR}/raspios-firmware.post-install.tmp" "${PKG_DIR}/raspios-firmware.post-install"
 
     cp "${PKG_DIR}/raspios-firmware.post-install" \
        "${PKG_DIR}/raspios-firmware.post-upgrade"
@@ -349,6 +403,7 @@ for variant in $VARIANTS; do
 set -e
 
 POST_INSTALL_HEADER
+    printf '%s\n\n' "$OS_PREFIX_HELPER" >> "${PKG_DIR}/raspios-kernel-${variant}.post-install"
 
     cat >> "${PKG_DIR}/raspios-kernel-${variant}.post-install" << POST_INSTALL_BODY
 KERNEL_BASE="${FULL_VERSION}"
@@ -376,18 +431,21 @@ if [ -x /sbin/depmod ] && [ -d "/lib/modules/\${KERNEL_VERSION}" ]; then
     depmod -a "\${KERNEL_VERSION}" 2>/dev/null || true
 fi
 
-# Copy kernel image to boot partition
+# Copy kernel image to boot partition, under the firmware's os_prefix
+# when one is set
 echo "Configuring Raspberry Pi kernel ${variant} version \${KERNEL_VERSION}..."
-mkdir -p /boot/firmware
+KERNEL_IMG="/boot/firmware/\$(boot_os_prefix)kernel${KERNEL_SUFFIX}.img"
+mkdir -p "\$(dirname "\${KERNEL_IMG}")"
 if [ -f "/boot/vmlinuz-\${KERNEL_VERSION}" ]; then
-    cp -f "/boot/vmlinuz-\${KERNEL_VERSION}" "/boot/firmware/kernel${KERNEL_SUFFIX}.img"
+    cp -f "/boot/vmlinuz-\${KERNEL_VERSION}" "\${KERNEL_IMG}"
 elif [ -f "/boot/vmlinuz-\${KERNEL_BASE}-rpi-${variant}" ]; then
-    cp -f "/boot/vmlinuz-\${KERNEL_BASE}-rpi-${variant}" "/boot/firmware/kernel${KERNEL_SUFFIX}.img"
+    cp -f "/boot/vmlinuz-\${KERNEL_BASE}-rpi-${variant}" "\${KERNEL_IMG}"
 elif [ -f "/boot/vmlinuz-\${KERNEL_BASE}" ]; then
-    cp -f "/boot/vmlinuz-\${KERNEL_BASE}" "/boot/firmware/kernel${KERNEL_SUFFIX}.img"
+    cp -f "/boot/vmlinuz-\${KERNEL_BASE}" "\${KERNEL_IMG}"
 elif [ -f "/boot/vmlinuz" ]; then
-    cp -f "/boot/vmlinuz" "/boot/firmware/kernel${KERNEL_SUFFIX}.img"
+    cp -f "/boot/vmlinuz" "\${KERNEL_IMG}"
 fi
+echo "Installed \${KERNEL_IMG}"
 echo "Raspberry Pi kernel ${variant} configured."
 
 # Kernel --force-overwrite clobbers regulatory.db from wireless-regdb.
