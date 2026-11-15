@@ -56,13 +56,23 @@ purge_cloudflare() {
 	if [ -z "${CLOUDFLARE_ZONE_ID:-}" ] || [ -z "${CLOUDFLARE_API_TOKEN:-}" ]; then
 		return 0
 	fi
-	local host="${REPO_URL#https://}"
-	curl -s -o /dev/null -X POST \
+	# Purge the index files by URL: purging by prefix is Enterprise-only
+	local files="" ver arch reply
+	for ver in $ALPINE_VERSIONS; do
+		for arch in $ARCHES; do
+			files="${files:+$files,}\"${REPO_URL}/v${ver}/community/${arch}/APKINDEX.tar.gz\""
+		done
+	done
+	reply=$(curl -s -X POST \
 		"https://api.cloudflare.com/client/v4/zones/${CLOUDFLARE_ZONE_ID}/purge_cache" \
 		-H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
 		-H "Content-Type: application/json" \
-		--data "{\"prefixes\": [\"https://${host}/\", \"http://${host}/\"]}"
-	log "Cloudflare cache purged for ${host}"
+		--data "{\"files\": [${files}]}")
+	if echo "$reply" | grep -q '"success": *true'; then
+		log "Cloudflare cache purged for ${REPO_URL#https://}"
+	else
+		log "WARNING: Cloudflare purge failed: ${reply}"
+	fi
 }
 
 # ── 1. Expected versions from gh-pages ───────────────────────────────
