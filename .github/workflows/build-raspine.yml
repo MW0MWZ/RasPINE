@@ -34,7 +34,7 @@ jobs:
     
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
 
     - name: Set build date
       id: set-date
@@ -816,7 +816,7 @@ jobs:
         EOF
 
     - name: Upload artifacts
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: ${{ matrix.image_prefix }}-${{ env.BUILD_DATE }}
         path: |
@@ -828,7 +828,7 @@ jobs:
     - name: Create Release
       # Only create release if called directly (not from master workflow)
       if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
-      uses: softprops/action-gh-release@v2
+      uses: softprops/action-gh-release@v3
       with:
         tag_name: v${{ env.BUILD_DATE }}
         name: RasPINE ${{ env.BUILD_DATE }}
@@ -869,10 +869,10 @@ jobs:
     
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
 
     - name: Download build artifacts
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v8
       with:
         pattern: RasPINE-*
         path: build-artifacts/
