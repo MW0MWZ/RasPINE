@@ -1,14 +1,16 @@
 # Contributor: MW0MWZ <andy@mw0mwz.co.uk>
 # Maintainer: MW0MWZ <andy@mw0mwz.co.uk>
 #
-# A local package: its source is this directory. The build gives each
+# A local package: its source is this directory. Shell scripts, but built
+# per arch: apk fetches a noarch package from a noarch/ directory, which
+# this repository does not have. The build gives each
 # build of a version the next -rN; change pkgver for a new version.
 pkgname=raspine-watchdog
 pkgver=1.0.0
 pkgrel=0
 pkgdesc="Raspberry Pi hardware watchdog, hung-shutdown resets, service checks with a reboot-loop guard"
 url="https://raspine.pistar.uk"
-arch="noarch"
+arch="armhf aarch64"
 license="GPL-2.0-only"
 depends="busybox openrc"
 install="$pkgname.post-install $pkgname.post-upgrade $pkgname.pre-deinstall"
