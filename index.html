@@ -1059,20 +1059,20 @@ wifi_country=GB</pre>
             <div class="step">
                 <div class="step-number">1</div>
                 <div class="step-content">
-                    <strong>Extract the image:</strong>
-                    <div class="code-block">
-                        xz -d RasPINE-*.img.xz
-                        <button class="copy-button" onclick="copyToClipboard(this, 'xz -d RasPINE-*.img.xz')">Copy</button>
+                    <strong>Write to SD card:</strong>
+                    <div style="margin-top: 10px;">
+                        <p>Use <a href="https://www.raspberrypi.com/software/" style="color: var(--mountain-blue);">Raspberry Pi Imager</a> (<em>Choose OS</em> &rarr; <em>Use custom</em>) or <a href="https://etcher.balena.io/" style="color: var(--mountain-blue);">balenaEtcher</a>: both write the compressed <code style="background: var(--code-bg); padding: 2px 6px; border-radius: 3px;">.img.xz</code> as it is.</p>
+                        <p>Do <strong>not</strong> use Win32DiskImager: it cannot read <code style="background: var(--code-bg); padding: 2px 6px; border-radius: 3px;">.xz</code>, and writing the compressed file leaves a card with no boot partition. If your tool only takes a plain <code style="background: var(--code-bg); padding: 2px 6px; border-radius: 3px;">.img</code>, decompress it first (7-Zip on Windows).</p>
                     </div>
                 </div>
             </div>
             <div class="step">
                 <div class="step-number">2</div>
                 <div class="step-content">
-                    <strong>Write to SD card:</strong>
+                    <strong>Or on Linux, without an imaging tool:</strong>
                     <div class="code-block">
-                        sudo dd if=RasPINE-*.img of=/dev/sdX bs=4M status=progress conv=fsync
-                        <button class="copy-button" onclick="copyToClipboard(this, 'sudo dd if=RasPINE-*.img of=/dev/sdX bs=4M status=progress conv=fsync')">Copy</button>
+                        xz -dc RasPINE-*.img.xz | sudo dd of=/dev/sdX bs=4M status=progress conv=fsync
+                        <button class="copy-button" onclick="copyToClipboard(this, 'xz -dc RasPINE-*.img.xz | sudo dd of=/dev/sdX bs=4M status=progress conv=fsync')">Copy</button>
                     </div>
                 </div>
             </div>
