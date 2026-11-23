@@ -206,7 +206,10 @@ The aarch64 image is a fully native 64-bit build for newer Pi models. It include
 ## 📡 Network Configuration
 
 ### Ethernet
-DHCP is enabled by default on `eth0`. No configuration needed.
+DHCP is enabled by default on `eth0`. No configuration needed. A USB Ethernet adapter works the same way: its driver loads when it is plugged in and it comes up as `eth0` (or `eth1` beside a built-in port).
+
+### Wired and WiFi Together
+With more than one interface up (wired and WiFi, or a USB Ethernet adapter), the `raspine-netroute` package's dhcpcd hook gives each interface a routing table of its own, and each of its addresses (IPv4 and IPv6) a rule using it: a reply always leaves by the interface its address belongs to, so the hotspot answers on both. New connections still go out by the preferred interface (wired first). The tables and rules follow dhcpcd as interfaces come and go; with one interface they change nothing.
 
 ### WiFi Setup
 

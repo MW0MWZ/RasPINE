@@ -24,6 +24,7 @@ on:
           - all
           - wiringpi
           - raspine-watchdog
+          - raspine-netroute
       alpine_version:
         description: 'Alpine version (or "all" for all versions)'
         required: true
@@ -384,7 +385,7 @@ jobs:
 
               # Clean source package types (keep only newest by timestamp)
               # Use [0-9] anchor so "wiringpi-" doesn't also match "wiringpi-dev-"
-              for prefix in wiringpi wiringpi-dev raspine-watchdog; do
+              for prefix in wiringpi wiringpi-dev raspine-watchdog raspine-netroute; do
                 NEWEST=$(ls -t ${prefix}-[0-9]*.apk 2>/dev/null | head -1)
 
                 if [ -n "$NEWEST" ]; then
@@ -446,7 +447,7 @@ jobs:
 
               # Clean all known package prefixes (kernel packages + source packages)
               # Use [0-9] anchor so e.g. "wiringpi-" doesn't also match "wiringpi-dev-"
-              for prefix in raspios-kernel-v6 raspios-kernel-v7 raspios-kernel-v8 raspios-kernel-2712 raspios-firmware raspios-kernel-headers-common raspios-bootloader wiringpi wiringpi-dev raspine-watchdog; do
+              for prefix in raspios-kernel-v6 raspios-kernel-v7 raspios-kernel-v8 raspios-kernel-2712 raspios-firmware raspios-kernel-headers-common raspios-bootloader wiringpi wiringpi-dev raspine-watchdog raspine-netroute; do
                 NEWEST=$(ls -t ${prefix}-[0-9]*.apk 2>/dev/null | head -1)
 
                 if [ -n "$NEWEST" ]; then
@@ -598,7 +599,7 @@ jobs:
           CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_TOKEN }}
           ALPINE_VERSIONS: "3.23 3.22"
-          PACKAGES: "wiringpi wiringpi-dev raspine-watchdog"
+          PACKAGES: "wiringpi wiringpi-dev raspine-watchdog raspine-netroute"
         run: |
           # As the kernel packages' deploy: purging before the GitHub Pages
           # build finishes lets Cloudflare re-cache the old APKINDEX for

@@ -1,0 +1,22 @@
+# Contributor: MW0MWZ <andy@mw0mwz.co.uk>
+# Maintainer: MW0MWZ <andy@mw0mwz.co.uk>
+#
+# A local package: its source is this directory. A shell script, but built
+# per arch: apk fetches a noarch package from a noarch/ directory, which
+# this repository does not have. The build gives each build of a version
+# the next -rN; change pkgver for a new version.
+pkgname=raspine-netroute
+pkgver=1.0.0
+pkgrel=0
+pkgdesc="Source-based routing: replies leave by the interface they came in on"
+url="https://raspine.pistar.uk"
+arch="armhf aarch64"
+license="GPL-2.0-only"
+depends="dhcpcd"
+options="!check"
+source="40-raspine-source-routing"
+
+package() {
+	install -Dm644 "$srcdir"/40-raspine-source-routing \
+		"$pkgdir"/usr/lib/dhcpcd/dhcpcd-hooks/40-raspine-source-routing
+}

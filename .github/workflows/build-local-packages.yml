@@ -1,5 +1,7 @@
 # Builds and publishes RasPINE's own packages (source in packages/<name>/,
-# no giturl) when their files change, through the source package pipeline.
+# no giturl) when their files change, through the source package pipeline:
+# only the packages whose files changed (all of them when run by hand), one
+# after another, as each publishes to the repository.
 name: Build Local Packages
 
 on:
@@ -7,14 +9,54 @@ on:
     branches: [main]
     paths:
       - 'packages/raspine-watchdog/**'
+      - 'packages/raspine-netroute/**'
   workflow_dispatch:
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      raspine-watchdog: ${{ steps.diff.outputs.raspine-watchdog }}
+      raspine-netroute: ${{ steps.diff.outputs.raspine-netroute }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: diff
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          for p in raspine-watchdog raspine-netroute; do
+            if [ "$EVENT" != push ] || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+              changed=true
+            elif git diff --quiet "$BEFORE" "$GITHUB_SHA" -- "packages/$p"; then
+              changed=false
+            else
+              changed=true
+            fi
+            echo "$p: $changed"
+            echo "$p=$changed" >> "$GITHUB_OUTPUT"
+          done
+
   raspine-watchdog:
+    needs: changes
+    if: needs.changes.outputs.raspine-watchdog == 'true'
     permissions:
       contents: write
       pages: write
     uses: ./.github/workflows/build-source-packages.yml
     with:
       package: raspine-watchdog
+    secrets: inherit
+
+  raspine-netroute:
+    needs: [changes, raspine-watchdog]
+    if: ${{ !cancelled() && needs.changes.outputs.raspine-netroute == 'true' && needs.raspine-watchdog.result != 'failure' }}
+    permissions:
+      contents: write
+      pages: write
+    uses: ./.github/workflows/build-source-packages.yml
+    with:
+      package: raspine-netroute
     secrets: inherit

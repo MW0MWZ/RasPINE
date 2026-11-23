@@ -1,0 +1,68 @@
+# RasPINE: source-based routing (dhcpcd hook; raspine-netroute package)
+#
+# With more than one interface up (wired and WiFi, a USB Ethernet adapter)
+# only one default route wins in the main table, so a reply to something
+# that came in on the other interface leaves by the wrong one and may be
+# dropped on the way. So each interface gets a routing table of its own (a
+# copy of its routes in the main table, its default route included) and
+# each of its addresses a rule using it: what is sent from an address
+# leaves by that address's interface. IPv4 and IPv6 alike. With a single
+# interface the rules say what the main table already does.
+#
+# Run by dhcpcd on every change to an interface: the table and rules are
+# rebuilt from what the interface has now, or removed when it goes down.
+# Tables and rule priorities: 1000 + the interface's index.
+
+# shellcheck disable=SC2154 # $interface and $reason come from dhcpcd
+rsr_ip() { /sbin/ip "$@" 2>/dev/null; }
+
+rsr_clear() {
+	# $1 table/priority
+	rsr_ip -4 route flush table "$1"
+	rsr_ip -6 route flush table "$1"
+	n=0
+	while [ $n -lt 64 ] && rsr_ip -4 rule del priority "$1"; do n=$((n + 1)); done
+	n=0
+	while [ $n -lt 64 ] && rsr_ip -6 rule del priority "$1"; do n=$((n + 1)); done
+}
+
+rsr_sync() {
+	# $1 interface, $2 table/priority
+	rsr_clear "$2"
+	for fam in -4 -6; do
+		# The interface's routes, as the main table has them (metric,
+		# expiry, protocol and preference dropped: one table each)
+		rsr_ip $fam route show table main dev "$1" | while read -r line; do
+			case "$line" in
+			fe80:* | multicast* | broadcast* | local* | unreachable*) continue ;;
+			esac
+			route=$(printf '%s\n' "$line" | sed -e 's/ metric [0-9]*//' -e 's/ expires [0-9a-z]*//' \
+				-e 's/ proto [a-z0-9]*//' -e 's/ pref [a-z]*//' -e 's/ linkdown//' -e 's/  */ /g' -e 's/ *$//')
+			[ -n "$route" ] && rsr_ip $fam route replace $route dev "$1" table "$2"
+		done
+		# A rule for each of its addresses (not link-local ones)
+		rsr_ip $fam addr show dev "$1" | while read -r kind addr rest; do
+			case "$kind" in inet | inet6) ;; *) continue ;; esac
+			case "$rest" in *"scope link"* | *"scope host"*) continue ;; esac
+			rsr_ip $fam rule add from "${addr%/*}" lookup "$2" priority "$2"
+		done
+	done
+}
+
+rsr_main() {
+	[ -n "$interface" ] && [ -r "/sys/class/net/$interface/ifindex" ] || return 0
+	[ "$interface" = lo ] && return 0
+	idx=$(cat "/sys/class/net/$interface/ifindex")
+	table=$((1000 + idx))
+	case "$reason" in
+	NOCARRIER | NOCARRIER_ROAMING | RELEASE | RELEASE6 | EXPIRE | EXPIRE6 | STOP | STOP6 | STOPPED | DEPARTED | FAIL)
+		rsr_clear "$table"
+		;;
+	PREINIT | TEST | DUMP) ;;
+	*)
+		rsr_sync "$interface" "$table"
+		;;
+	esac
+}
+
+rsr_main

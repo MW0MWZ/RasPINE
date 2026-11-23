@@ -273,8 +273,10 @@ jobs:
         fi
 
         # The hardware watchdog, service checks and boot record
-        # (packages/raspine-watchdog; Pi-Star OS installs it too)
-        apk add --no-cache raspine-watchdog
+        # (packages/raspine-watchdog), and source-based routing: replies
+        # leave by the interface they came in on (packages/raspine-netroute;
+        # Pi-Star OS installs both too)
+        apk add --no-cache raspine-watchdog raspine-netroute
         
         # Update CA certificates to fix SSL/TLS issues
         echo "Updating CA certificates..."
