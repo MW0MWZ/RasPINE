@@ -3,10 +3,14 @@
 # actions) for the next boot to read
 # Part of RasPINE
 #
-#   raspine-watchdog-mark stopping  first: also kills the watchdog feeder
-#                                   without disarming it, so a shutdown
-#                                   that hangs is reset by the hardware
-#   raspine-watchdog-mark stopped   last: the shutdown finished
+#   raspine-watchdog-mark stopping  inittab's first shutdown action: also
+#                                   kills the watchdog feeder without
+#                                   disarming it, so a shutdown that hangs
+#                                   is reset by the hardware
+#   raspine-watchdog-mark stopped   raspine-watchdog-health's stop at a
+#                                   shutdown: the services have stopped
+#                                   (and the record's filesystem is still
+#                                   mounted)
 #
 # The next boot reads the mark (raspine-watchdog-health): "running" means
 # the system stopped without a shutdown (power lost, or a hang reset by

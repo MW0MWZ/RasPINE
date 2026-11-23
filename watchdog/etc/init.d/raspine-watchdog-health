@@ -35,3 +35,14 @@ start_pre() {
 		return 1
 	fi
 }
+
+# Stopped by a shutdown or reboot: the shutdown has got this far, so it is
+# recorded as finished. Written here, not as inittab's last action: by
+# then the filesystems the record is on (/data on Pi-Star OS) are
+# unmounted. This stops after the network and every service that uses it.
+stop_post() {
+	case "$RC_RUNLEVEL" in
+		shutdown | reboot) /usr/sbin/raspine-watchdog-mark stopped ;;
+	esac
+	return 0
+}

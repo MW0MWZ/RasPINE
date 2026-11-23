@@ -24,10 +24,12 @@ for svc in raspine-watchdog raspine-watchdog-health; do
 done
 
 # inittab: mark a shutdown's start (and leave the watchdog armed through
-# it) before OpenRC stops everything, and its end after
+# it) before OpenRC stops everything (its end is marked by
+# raspine-watchdog-health's stop, while the filesystems are mounted)
 tab="$ROOT/etc/inittab"
-if ! grep -q raspine-watchdog-mark "$tab"; then
-	sed -i 's|^::shutdown:/sbin/openrc shutdown$|::shutdown:/usr/sbin/raspine-watchdog-mark stopping\n&\n::shutdown:/usr/sbin/raspine-watchdog-mark stopped|' "$tab"
+sed -i '/raspine-watchdog-mark stopped/d' "$tab"
+if ! grep -q "raspine-watchdog-mark stopping" "$tab"; then
+	sed -i 's|^::shutdown:/sbin/openrc shutdown$|::shutdown:/usr/sbin/raspine-watchdog-mark stopping\n&|' "$tab"
 	grep -q "raspine-watchdog-mark stopping" "$tab" || {
 		echo "install.sh: $tab has no '::shutdown:/sbin/openrc shutdown' line" >&2
 		exit 1
