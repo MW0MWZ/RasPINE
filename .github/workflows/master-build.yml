@@ -258,6 +258,16 @@ jobs:
             REASON="Initial build (no previous build info)"
           fi
 
+          # Run by hand with the image asked for: build it (a scheduled run
+          # builds only for the weekly rebuild or new packages)
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.build_image }}" = "true" ]; then
+            echo "Image requested by hand"
+            BUILD_IMAGE=true
+            if [ "$REASON" = "No build needed" ]; then
+              REASON="Requested by hand"
+            fi
+          fi
+
           # Check if new packages were just built
           if [ "${{ needs.wait-for-repository.outputs.repository_ready }}" = "true" ]; then
             echo "Repository is ready from package build"
@@ -339,6 +349,13 @@ jobs:
         # Get date for tag
         RELEASE_DATE=$(date +'%Y-%m-%d')
         TAG_NAME="v${RELEASE_DATE}"
+        # A later release the same day: v<date>.2, .3 ...
+        N=2
+        while gh release view "$TAG_NAME" >/dev/null 2>&1 || git ls-remote --exit-code --tags origin "refs/tags/$TAG_NAME" >/dev/null 2>&1; do
+          TAG_NAME="v${RELEASE_DATE}.${N}"
+          N=$((N + 1))
+        done
+        echo "Release tag: $TAG_NAME"
         
         # Extract kernel version number for release title
         KERNEL_VER=$(echo "$KERNEL_VERSION" | sed 's/+.*//')
