@@ -217,6 +217,10 @@ jobs:
         # Update package index
         echo "Updating package index..."
         apk update
+        # Bring the minirootfs's own packages (musl, zlib, apk-tools...)
+        # up to date: left at the snapshot's versions, a hotspot's first
+        # scheduled update replaces the C library and has to reboot
+        apk upgrade
         
         # Install base packages plus WiFi support, sudo, and dhcpcd
         echo "Installing packages..."
