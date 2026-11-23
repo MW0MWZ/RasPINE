@@ -334,10 +334,12 @@ jobs:
         # Create modprobe configuration for brcmfmac
         mkdir -p /etc/modprobe.d
         cat > /etc/modprobe.d/raspi-wifi.conf << MODCONF
-        # Raspberry Pi WiFi configuration
+        # Raspberry Pi WiFi stability, as Raspberry Pi OS ships it
+        # (firmware-brcm80211's rpi-brcmfmac.conf): no firmware roaming,
+        # which can crash the onboard WiFi, and the fwsup, sae and
+        # dump_obss firmware features off. Not power management.
         options brcmfmac roamoff=1
-        # Disable power management for better stability
-        options brcmfmac feature_disable=0x82000
+        options brcmfmac feature_disable=0x282000
         MODCONF
         
         # Set regulatory domain
