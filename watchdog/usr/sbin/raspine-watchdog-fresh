@@ -1,0 +1,14 @@
+#!/bin/sh
+# raspine-watchdog-fresh FILE SECONDS - a health check: true when FILE was
+# written within the last SECONDS (a service's heartbeat)
+# Part of RasPINE
+
+file="$1"
+age="$2"
+[ -n "$file" ] && [ -n "$age" ] || {
+	echo "usage: $0 FILE SECONDS" >&2
+	exit 2
+}
+written=$(stat -c %Y "$file" 2>/dev/null) || exit 1
+now=$(date +%s)
+[ $((now - written)) -lt "$age" ]

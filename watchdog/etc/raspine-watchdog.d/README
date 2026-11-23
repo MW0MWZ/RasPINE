@@ -1,0 +1,17 @@
+Checks for raspine-watchdog-health: one NAME.conf per service that must keep
+running (shell, sourced). Packages drop their own here.
+
+  NAME="Pi-Star MCP"                    what it is, for the log
+  CHECK="raspine-watchdog-fresh /run/pistar/mcp-heartbeat 60"
+                                        a command; exit 0 = healthy (killed
+                                        after 20 seconds)
+  RESTART="rc-service pistar-mcp restart"
+                                        how to bring it back
+  GRACE=300        seconds after boot, and after each restart, before it is
+                   judged
+  FAIL_AFTER=90    seconds unhealthy before anything is done
+  RESTARTS=3       restarts before a recovery reboot
+
+Unhealthy for FAIL_AFTER: restarted. Still unhealthy after RESTARTS
+restarts: a recovery reboot, unless the loop guard says no (MAX_REBOOTS in
+/etc/conf.d/raspine-watchdog). Events: /var/lib/raspine-watchdog/events.

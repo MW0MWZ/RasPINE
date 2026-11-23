@@ -1,0 +1,37 @@
+#!/sbin/openrc-run
+# shellcheck shell=sh disable=SC2034
+# raspine-watchdog-health - keep the services that matter running
+# Part of RasPINE (see /usr/sbin/raspine-watchdog-health)
+
+description="RasPINE watchdog: service checks, recovery reboots and the boot record" # used by OpenRC
+
+supervisor="supervise-daemon"
+command="/usr/sbin/raspine-watchdog-health"
+respawn_delay=5
+respawn_max=0
+output_logger="logger -t raspine-watchdog -p daemon.info"
+error_logger="logger -t raspine-watchdog -p daemon.err"
+
+depend() {
+	need localmount
+	after pistar-bindmounts
+	# Started before the network, so stopped after it and after every
+	# service that uses it
+	before net
+	use logger
+}
+
+is_pi() {
+	model=$(tr -d '\0' < /proc/device-tree/model 2>/dev/null)
+	case "$model" in
+		"Raspberry Pi"*) return 0 ;;
+	esac
+	return 1
+}
+
+start_pre() {
+	if ! is_pi; then
+		eerror "Not a Raspberry Pi: the RasPINE watchdog does not run here"
+		return 1
+	fi
+}

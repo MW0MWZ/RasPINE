@@ -369,6 +369,10 @@ jobs:
         # Cleanup
         sudo rm /mnt/root/setup-alpine.sh
         sudo rm /mnt/root/etc/alpine-build-env
+
+        # The hardware watchdog, service checks and boot record
+        # (watchdog/: Pi-Star OS installs the same)
+        sudo ./watchdog/install.sh /mnt/root
         
         # Unmount the bind mounts
         sudo umount /mnt/root/dev/pts 2>/dev/null || true

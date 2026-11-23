@@ -1,0 +1,219 @@
+#!/bin/sh
+# raspine-watchdog-health - keep the services that matter running; reboot
+# when they cannot be brought back, but never into a loop
+# Part of RasPINE
+#
+# Each /etc/raspine-watchdog.d/*.conf names a check (shell, sourced):
+#
+#   NAME="Pi-Star MCP"                  what it is, for the log
+#   CHECK="raspine-watchdog-fresh /run/pistar/mcp-heartbeat 60"
+#                                       a command; exit 0 = healthy
+#   RESTART="rc-service pistar-mcp restart"
+#                                       how to bring it back
+#   GRACE=300       seconds after boot, and after each restart, before it
+#                   is judged
+#   FAIL_AFTER=90   seconds unhealthy before anything is done
+#   RESTARTS=3      restarts before a recovery reboot
+#
+# Every 10 seconds each check runs (killed after 20). Unhealthy for
+# FAIL_AFTER: restart it. Still unhealthy after RESTARTS restarts: reboot,
+# unless the loop guard says no. A check healthy for 30 minutes starts
+# its count of restarts again.
+#
+# The loop guard (MAX_REBOOTS): recovery reboots are allowed only while
+# fewer than MAX_REBOOTS happened in the last 6 hours, and never after two
+# recovery reboots in a row whose boots never became healthy (every check
+# healthy, or with no checks the system up, for 10 minutes). Held back,
+# the system stays up and the check is restarted every 15 minutes.
+#
+# Each boot records how the one before it ended, from raspine-watchdog-
+# mark's mark: "stopped" a clean shutdown, "stopping" a shutdown that
+# never finished, "running" none at all (power lost, or a hang reset by the
+# watchdog or by power). Events go to STATE_DIR/events, one a line:
+#
+#   <epoch> <event> <check|-> <detail>
+#
+#   boot        - booted; detail: how the last boot ended (clean, unclean,
+#                 shutdown-hung)
+#   healthy     - - this boot became healthy
+#   unhealthy   check failed for FAIL_AFTER
+#   restart     check restarted (detail: the attempt, n/RESTARTS)
+#   recovered   check healthy again
+#   reboot      check recovery reboot
+#   held        check a recovery reboot not taken (detail: why)
+
+# shellcheck disable=SC1091
+[ -r /etc/conf.d/raspine-watchdog ] && . /etc/conf.d/raspine-watchdog
+STATE_DIR="${STATE_DIR:-/var/lib/raspine-watchdog}"
+MAX_REBOOTS="${MAX_REBOOTS:-3}"
+CHECK_DIR="${CHECK_DIR:-/etc/raspine-watchdog.d}"
+RUN_DIR="${RUN_DIR:-/run/raspine-watchdog}"
+EVENTS="$STATE_DIR/events"
+INTERVAL=10
+HEALTHY_AFTER=600   # a boot is healthy after this long with all checks passing
+FORGIVE_AFTER=1800  # a check healthy this long starts its restarts again
+HELD_RETRY=900      # held back from rebooting: restart this often
+
+now() { date +%s; }
+
+log() {
+	logger -t raspine-watchdog -p daemon.warn "$*" 2>/dev/null
+}
+
+# event EVENT CHECK DETAIL
+event() {
+	echo "$(now) $1 ${2:--} $3" >> "$EVENTS"
+	# Keep the last 200
+	if [ "$(wc -l < "$EVENTS")" -gt 250 ]; then
+		tail -n 200 "$EVENTS" > "$EVENTS.new" && mv "$EVENTS.new" "$EVENTS"
+	fi
+	sync
+}
+
+# Per-check state, in RUN_DIR (gone at boot, kept when this restarts)
+get() { cat "$RUN_DIR/$1.$2" 2>/dev/null; }
+put() { echo "$3" > "$RUN_DIR/$1.$2"; }
+del() { rm -f "$RUN_DIR/$1.$2"; }
+
+# boot_once: the first start this boot records how the last boot ended
+boot_once() {
+	[ -f "$RUN_DIR/boot" ] && return
+	mark=$(cut -d' ' -f1 "$STATE_DIR/mark" 2>/dev/null)
+	case "$mark" in
+		stopped) how=clean ;;
+		stopping) how=shutdown-hung ;;
+		running) how=unclean ;;
+		*) how=first ;;
+	esac
+	event boot - "$how"
+	[ "$how" = clean ] || [ "$how" = first ] || log "the last boot did not end cleanly ($how)"
+	echo "running $(now)" > "$STATE_DIR/mark"
+	sync
+	now > "$RUN_DIR/boot"
+}
+
+# reboot_allowed: the loop guard; prints why not when it says no
+reboot_allowed() {
+	since=$(($(now) - 21600))
+	recent=$(awk -v s="$since" '$1 >= s && $2 == "reboot"' "$EVENTS" 2>/dev/null | wc -l)
+	if [ "$recent" -ge "$MAX_REBOOTS" ]; then
+		echo "$recent recovery reboots in 6 hours"
+		return 1
+	fi
+	# Recovery reboots since the last healthy boot
+	unhealthy=$(awk '$2 == "healthy" { n = 0 } $2 == "reboot" { n++ } END { print n + 0 }' "$EVENTS" 2>/dev/null)
+	if [ "$unhealthy" -ge 2 ]; then
+		echo "$unhealthy recovery reboots without the system becoming healthy"
+		return 1
+	fi
+	return 0
+}
+
+# run_check ID: runs the check; returns its result
+run_check() {
+	timeout -s KILL 20 sh -c "$CHECK" >/dev/null 2>&1
+}
+
+restart() {
+	id="$1"
+	n=$(($(get "$id" restarts || echo 0) + 1))
+	put "$id" restarts "$n"
+	put "$id" restarted "$(now)"
+	del "$id" bad
+	event restart "$id" "$n/$RESTARTS"
+	log "$NAME is not healthy: restarting it ($n of $RESTARTS)"
+	timeout -s KILL 120 sh -c "$RESTART" >/dev/null 2>&1 &
+}
+
+tick() {
+	t=$(now)
+	boot=$(cat "$RUN_DIR/boot")
+	all_ok=yes
+	for conf in "$CHECK_DIR"/*.conf; do
+		[ -f "$conf" ] || continue
+		NAME="" CHECK="" RESTART="" GRACE=300 FAIL_AFTER=90 RESTARTS=3
+		# shellcheck disable=SC1090
+		. "$conf" || continue
+		[ -n "$CHECK" ] || continue
+		id=$(basename "$conf" .conf)
+		NAME="${NAME:-$id}"
+
+		started=$(get "$id" restarted || echo "$boot")
+		[ "$boot" -gt "$started" ] && started="$boot"
+		in_grace=no
+		[ $((t - started)) -lt "$GRACE" ] && in_grace=yes
+
+		if run_check; then
+			if [ -n "$(get "$id" failing)" ]; then
+				event recovered "$id" ""
+				log "$NAME is healthy again"
+			fi
+			del "$id" bad
+			del "$id" failing
+			del "$id" held
+			[ -n "$(get "$id" good)" ] || put "$id" good "$t"
+			good=$(get "$id" good)
+			[ $((t - good)) -ge "$FORGIVE_AFTER" ] && del "$id" restarts
+			continue
+		fi
+
+		all_ok=no
+		del "$id" good
+		[ "$in_grace" = yes ] && continue
+		bad=$(get "$id" bad)
+		if [ -z "$bad" ]; then
+			put "$id" bad "$t"
+			continue
+		fi
+		[ $((t - bad)) -lt "$FAIL_AFTER" ] && continue
+
+		if [ -z "$(get "$id" failing)" ]; then
+			put "$id" failing "$t"
+			event unhealthy "$id" "$((t - bad))s"
+		fi
+		restarts=$(get "$id" restarts || echo 0)
+		if [ "$restarts" -lt "$RESTARTS" ]; then
+			restart "$id"
+			continue
+		fi
+
+		# Restarts used up: reboot, unless that would loop
+		if why=$(reboot_allowed); then
+			event reboot "$id" "after $restarts restarts"
+			log "$NAME did not recover after $restarts restarts: rebooting"
+			sync
+			reboot
+			sleep 3600 # until the system stops this
+		fi
+		held=$(get "$id" held)
+		if [ -z "$held" ]; then
+			event held "$id" "$why"
+			log "$NAME did not recover, but not rebooting: $why"
+			put "$id" held "$t"
+			restart "$id"
+		elif [ $((t - held)) -ge "$HELD_RETRY" ]; then
+			put "$id" held "$t"
+			restart "$id"
+		fi
+	done
+
+	# The boot is healthy once every check (or, with none, the system)
+	# has held for HEALTHY_AFTER: the loop guard counts from here
+	if [ "$all_ok" = yes ]; then
+		[ -n "$(cat "$RUN_DIR/ok" 2>/dev/null)" ] || echo "$t" > "$RUN_DIR/ok"
+		if [ ! -f "$RUN_DIR/healthy" ] && [ $((t - $(cat "$RUN_DIR/ok"))) -ge "$HEALTHY_AFTER" ]; then
+			touch "$RUN_DIR/healthy"
+			event healthy - ""
+		fi
+	else
+		rm -f "$RUN_DIR/ok"
+	fi
+}
+
+mkdir -p "$STATE_DIR" "$RUN_DIR"
+touch "$EVENTS"
+boot_once
+while :; do
+	tick
+	sleep "$INTERVAL"
+done

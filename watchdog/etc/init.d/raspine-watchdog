@@ -1,0 +1,55 @@
+#!/sbin/openrc-run
+# shellcheck shell=sh disable=SC2034
+# raspine-watchdog - feed the Raspberry Pi's hardware watchdog
+# Part of RasPINE
+#
+# BusyBox's watchdog feeds /dev/watchdog every 5 seconds with a timeout of
+# WATCHDOG_TIMEOUT (the kernel stretches the hardware's 15 seconds to it).
+# A system frozen that long is reset by the hardware.
+#
+# Stopped as a service, it disarms the watchdog. At a shutdown or reboot,
+# raspine-watchdog-mark (inittab's first shutdown action) kills it first,
+# leaving the watchdog armed: the shutdown then has WATCHDOG_TIMEOUT to
+# finish, or the board is reset rather than left hung.
+#
+# Only on a Raspberry Pi with a watchdog device.
+
+description="Raspberry Pi hardware watchdog (resets a frozen system or a hung shutdown)" # used by OpenRC
+
+: "${WATCHDOG_TIMEOUT:=120}"
+
+command="/sbin/watchdog"
+pidfile="/run/raspine-watchdog.pid"
+
+depend() {
+	# As early as can be: a boot that hangs later is reset too
+	before '*'
+}
+
+is_pi() {
+	model=$(tr -d '\0' < /proc/device-tree/model 2>/dev/null)
+	case "$model" in
+		"Raspberry Pi"*) return 0 ;;
+	esac
+	return 1
+}
+
+start() {
+	if ! is_pi || [ ! -c /dev/watchdog ]; then
+		einfo "Not a Raspberry Pi with a hardware watchdog: nothing to feed"
+		return 0
+	fi
+	ebegin "Starting the hardware watchdog (${WATCHDOG_TIMEOUT}s)"
+	start-stop-daemon --start --background --make-pidfile --pidfile "$pidfile" \
+		--exec "$command" -- -F -T "$WATCHDOG_TIMEOUT" -t 5 /dev/watchdog
+	eend $?
+}
+
+stop() {
+	[ -f "$pidfile" ] || return 0
+	ebegin "Stopping the hardware watchdog (disarmed)"
+	# TERM: BusyBox writes the magic close, which disarms it
+	start-stop-daemon --stop --signal TERM --pidfile "$pidfile" --exec "$command"
+	rm -f "$pidfile"
+	eend 0
+}

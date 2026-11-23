@@ -1,0 +1,13 @@
+# RasPINE watchdog settings (read by raspine-watchdog, raspine-watchdog-health
+# and raspine-watchdog-mark).
+
+# Seconds the system may stop feeding the Raspberry Pi's hardware watchdog
+# (frozen, or a shutdown or reboot that hangs) before the board is reset.
+#WATCHDOG_TIMEOUT=120
+
+# Where the boot record and the recovery events are kept (persistent).
+#STATE_DIR=/var/lib/raspine-watchdog
+
+# Recovery reboots allowed in any 6 hours. After two recovery reboots in a
+# row that never reached a healthy system, none at all until it is healthy.
+#MAX_REBOOTS=3

@@ -1,0 +1,36 @@
+#!/bin/sh
+# raspine-watchdog-mark - record a shutdown's progress (inittab's shutdown
+# actions) for the next boot to read
+# Part of RasPINE
+#
+#   raspine-watchdog-mark stopping  first: also kills the watchdog feeder
+#                                   without disarming it, so a shutdown
+#                                   that hangs is reset by the hardware
+#   raspine-watchdog-mark stopped   last: the shutdown finished
+#
+# The next boot reads the mark (raspine-watchdog-health): "running" means
+# the system stopped without a shutdown (power lost, or a hang reset by
+# the watchdog or by power), "stopping" that a shutdown never finished.
+
+# shellcheck disable=SC1091
+[ -r /etc/conf.d/raspine-watchdog ] && . /etc/conf.d/raspine-watchdog
+STATE_DIR="${STATE_DIR:-/var/lib/raspine-watchdog}"
+
+case "$1" in
+	stopping)
+		pid=$(cat /run/raspine-watchdog.pid 2>/dev/null)
+		# KILL: the feeder cannot write the magic close, so it stays armed
+		[ -n "$pid" ] && kill -KILL "$pid" 2>/dev/null
+		;;
+	stopped) ;;
+	*)
+		echo "usage: $0 stopping|stopped" >&2
+		exit 2
+		;;
+esac
+
+if [ -d "$STATE_DIR" ]; then
+	echo "$1 $(date +%s)" > "$STATE_DIR/mark" 2>/dev/null
+	sync
+fi
+exit 0
