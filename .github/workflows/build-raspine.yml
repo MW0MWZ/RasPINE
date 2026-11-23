@@ -88,19 +88,28 @@ jobs:
     - name: Set up loop device and format partitions
       run: |
         # Set up loop device with partitions
-        sudo losetup -P /dev/loop0 raspine.img
+        # Any free loop device: the first is not always free on the runner
+        LOOP=$(sudo losetup -fP --show raspine.img)
+        echo "LOOP=$LOOP" >> "$GITHUB_ENV"
+        echo "Image on $LOOP"
+        # The partitions' device nodes can take a moment to appear
+        for i in 1 2 3 4 5 6 7 8 9 10; do
+          [ -b "${LOOP}p1" ] && [ -b "${LOOP}p2" ] && break
+          sudo partprobe "$LOOP" 2>/dev/null || true
+          sleep 1
+        done
         
         # Format partitions
         echo "Formatting boot partition..."
-        sudo mkfs.vfat -F 32 -n BOOT /dev/loop0p1
+        sudo mkfs.vfat -F 32 -n BOOT "${LOOP}p1"
         
         echo "Formatting root partition..."
-        sudo mkfs.ext4 -L rootfs /dev/loop0p2
+        sudo mkfs.ext4 -L rootfs "${LOOP}p2"
         
         # Mount partitions
         sudo mkdir -p /mnt/{boot,root}
-        sudo mount /dev/loop0p1 /mnt/boot
-        sudo mount /dev/loop0p2 /mnt/root
+        sudo mount "${LOOP}p1" /mnt/boot
+        sudo mount "${LOOP}p2" /mnt/root
 
     - name: Install Alpine Linux rootfs
       run: |
@@ -788,7 +797,7 @@ jobs:
         sync
         sudo umount /mnt/boot
         sudo umount /mnt/root
-        sudo losetup -d /dev/loop0
+        sudo losetup -d "$LOOP"
 
     - name: Compress image
       run: |
