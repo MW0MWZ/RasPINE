@@ -268,11 +268,11 @@ rc-update del dropbear default
 
 ### Watchdog
 
-RasPINE keeps a Raspberry Pi from staying hung, without rebooting into a loop (`watchdog/`, installed by `watchdog/install.sh`):
+RasPINE keeps a Raspberry Pi from staying hung, without rebooting into a loop: the `raspine-watchdog` package (`packages/raspine-watchdog`, built and published whenever its files change, installed in every image; `apk add raspine-watchdog` on an older system):
 
 - **Hardware watchdog** (`raspine-watchdog`): BusyBox's `watchdog` feeds `/dev/watchdog` every 5 seconds with a 120 second timeout (`WATCHDOG_TIMEOUT` in `/etc/conf.d/raspine-watchdog`). A system frozen that long is reset by the hardware. Stopping the service disarms it.
 - **Shutdowns that hang**: inittab's first shutdown action (`raspine-watchdog-mark stopping`) kills the feeder without disarming it, so a shutdown or reboot that has not finished in 120 seconds is reset rather than left hung.
-- **Service checks** (`raspine-watchdog-health`): each `/etc/raspine-watchdog.d/*.conf` names a check, how to restart it, and how long to wait (see the README there). A check that fails is restarted; after its restarts, the system is rebooted. Recovery reboots are limited to 3 in 6 hours (`MAX_REBOOTS`), and stop altogether after two in a row whose boots never became healthy: the system then stays up and the check is retried every 15 minutes.
+- **Service checks** (`raspine-watchdog-health`): each `/etc/raspine-watchdog.d/*.conf` names a check, how to restart it, and how long to wait (see the README there); packages drop their own there. A check that fails is restarted; after its restarts, the system is rebooted. Recovery reboots are limited to 3 in 6 hours (`MAX_REBOOTS`), and stop altogether after two in a row whose boots never became healthy: the system then stays up and the check is retried every 15 minutes.
 - **Boot record**: each boot records how the last one ended, clean, a shutdown that never finished, or none at all (power lost, or a hang), in `/var/lib/raspine-watchdog/events` with the restarts and reboots. A shutdown's start is marked by inittab's first shutdown action, its end by `raspine-watchdog-health` as it stops, while the filesystem the record is on is still mounted.
 
 Only on a Raspberry Pi.

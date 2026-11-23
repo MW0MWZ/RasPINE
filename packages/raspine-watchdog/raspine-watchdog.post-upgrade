@@ -1,0 +1,25 @@
+#!/bin/sh
+# The same set-up as an install (each step idempotent); then, on a running
+# system, the health service is restarted so it runs the new script.
+
+rc-update add raspine-watchdog boot >/dev/null 2>&1
+rc-update add raspine-watchdog-health boot >/dev/null 2>&1
+
+tab=/etc/inittab
+if [ -f "$tab" ]; then
+	sed -i '/raspine-watchdog-mark stopped/d' "$tab"
+	if ! grep -q "raspine-watchdog-mark stopping" "$tab"; then
+		sed -i 's|^::shutdown:/sbin/openrc shutdown$|::shutdown:/usr/sbin/raspine-watchdog-mark stopping\n&|' "$tab"
+	fi
+fi
+
+if [ "$(stat -c %d:%i /)" = "$(stat -c %d:%i /proc/1/root/. 2>/dev/null)" ]; then
+	kill -HUP 1 2>/dev/null
+	rc-service raspine-watchdog start >/dev/null 2>&1
+	if rc-service raspine-watchdog-health status >/dev/null 2>&1; then
+		rc-service raspine-watchdog-health restart >/dev/null 2>&1
+	else
+		rc-service raspine-watchdog-health start >/dev/null 2>&1
+	fi
+fi
+exit 0

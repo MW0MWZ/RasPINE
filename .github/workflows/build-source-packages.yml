@@ -23,6 +23,7 @@ on:
         options:
           - all
           - wiringpi
+          - raspine-watchdog
       alpine_version:
         description: 'Alpine version (or "all" for all versions)'
         required: true
@@ -126,7 +127,8 @@ jobs:
 
             # Check if this package supports our architecture
             PKG_ARCH=$(grep "^arch=" "$PACKAGE_DIR/APKBUILD" | head -1 | cut -d'"' -f2)
-            if [ -n "$PKG_ARCH" ] && [ "$PKG_ARCH" != "all" ]; then
+            # noarch (scripts): built in every job, so each arch's repository has it
+            if [ -n "$PKG_ARCH" ] && [ "$PKG_ARCH" != "all" ] && [ "$PKG_ARCH" != "noarch" ]; then
               if ! echo "$PKG_ARCH" | grep -qw "$ARCH"; then
                 echo "Package $PACKAGE does not support $ARCH (supports: $PKG_ARCH), skipping..."
                 echo "::endgroup::"
@@ -140,27 +142,34 @@ jobs:
             GITURL=$(grep "^giturl=" "$PACKAGE_DIR/APKBUILD" | head -1 | cut -d'"' -f2)
 
             if [ -z "$GITURL" ]; then
-              echo "No giturl found in APKBUILD for $PACKAGE, skipping..."
-              rm -rf "$TEMP_DIR"
-              echo "::endgroup::"
-              continue
-            fi
-
-            echo "Git URL: $GITURL"
-
-            # Clone and get version info
-            git clone --depth 50 "$GITURL" "$TEMP_DIR/repo"
-            cd "$TEMP_DIR/repo"
-            GIT_COMMIT=$(git rev-parse --short HEAD)
-            # Use VERSION file if present, otherwise fall back to commit date
-            if [ -f VERSION ]; then
-              PKG_VERSION=$(cat VERSION | tr -d '[:space:]')
-              echo "Using upstream VERSION: $PKG_VERSION"
+              # A local package: its source is its own directory here, its
+              # version the APKBUILD's pkgver (each build of it the next -rN)
+              LOCAL=yes
+              PKG_VERSION=$(grep "^pkgver=" "$PACKAGE_DIR/APKBUILD" | head -1 | cut -d= -f2)
+              GIT_COMMIT=$(git log -1 --format=%h -- "$PACKAGE_DIR")
+              if [ -z "$PKG_VERSION" ]; then
+                echo "::error::$PACKAGE: no giturl and no pkgver in its APKBUILD"
+                exit 1
+              fi
+              echo "Local package, version $PKG_VERSION (commit $GIT_COMMIT)"
             else
-              PKG_VERSION=$(git show -s --format=%cd --date=format:'%Y.%m.%d' HEAD)
-              echo "No VERSION file, using commit date: $PKG_VERSION"
+              LOCAL=no
+              echo "Git URL: $GITURL"
+
+              # Clone and get version info
+              git clone --depth 50 "$GITURL" "$TEMP_DIR/repo"
+              cd "$TEMP_DIR/repo"
+              GIT_COMMIT=$(git rev-parse --short HEAD)
+              # Use VERSION file if present, otherwise fall back to commit date
+              if [ -f VERSION ]; then
+                PKG_VERSION=$(cat VERSION | tr -d '[:space:]')
+                echo "Using upstream VERSION: $PKG_VERSION"
+              else
+                PKG_VERSION=$(git show -s --format=%cd --date=format:'%Y.%m.%d' HEAD)
+                echo "No VERSION file, using commit date: $PKG_VERSION"
+              fi
+              cd - > /dev/null
             fi
-            cd - > /dev/null
 
             # Determine release number by checking ALL architectures and Alpine versions
             PKG_RELEASE="0"
@@ -203,6 +212,15 @@ jobs:
             sed -i "s/^pkgrel=.*/pkgrel=${PKG_RELEASE}/" "$TEMP_DIR/APKBUILD"
             sed -i "s/^_gitcommit=.*/_gitcommit=\"${GIT_COMMIT}\"/" "$TEMP_DIR/APKBUILD"
 
+            # A local package's sources are its directory: all of it (abuild
+            # fills in their checksums, below)
+            if [ "$LOCAL" = yes ]; then
+              for file in "$PACKAGE_DIR"/*; do
+                [ "$(basename "$file")" = APKBUILD ] || cp "$file" "$TEMP_DIR/"
+              done
+              touch "$TEMP_DIR/.local-package"
+            fi
+
             # Copy supporting files (patches, init scripts, etc.)
             for file in "$PACKAGE_DIR"/*.initd "$PACKAGE_DIR"/*.confd "$PACKAGE_DIR"/*.pre-install "$PACKAGE_DIR"/*.post-install "$PACKAGE_DIR"/*.pre-upgrade "$PACKAGE_DIR"/*.post-upgrade "$PACKAGE_DIR"/*.pre-deinstall "$PACKAGE_DIR"/*.post-deinstall "$PACKAGE_DIR"/*.patch; do
               if [ -f "$file" ]; then
@@ -232,6 +250,7 @@ jobs:
 
                 # Copy all files from build directory to builder home
                 cp -r /build/* /home/builder/
+                [ -f /build/.local-package ] && cp /build/.local-package /home/builder/
                 chown -R builder:builder /home/builder/
 
                 # Setup abuild keys
@@ -244,6 +263,11 @@ jobs:
                 cp /home/builder/raspine.rsa.pub /etc/apk/keys/
 
                 cd /home/builder
+
+                # A local package: its sources checksummed as they are
+                if [ -f /home/builder/.local-package ]; then
+                  su builder -c "abuild checksum"
+                fi
 
                 # Run abuild
                 if ! su builder -c "abuild -r"; then
@@ -360,7 +384,7 @@ jobs:
 
               # Clean source package types (keep only newest by timestamp)
               # Use [0-9] anchor so "wiringpi-" doesn't also match "wiringpi-dev-"
-              for prefix in wiringpi wiringpi-dev; do
+              for prefix in wiringpi wiringpi-dev raspine-watchdog; do
                 NEWEST=$(ls -t ${prefix}-[0-9]*.apk 2>/dev/null | head -1)
 
                 if [ -n "$NEWEST" ]; then
@@ -422,7 +446,7 @@ jobs:
 
               # Clean all known package prefixes (kernel packages + source packages)
               # Use [0-9] anchor so e.g. "wiringpi-" doesn't also match "wiringpi-dev-"
-              for prefix in raspios-kernel-v6 raspios-kernel-v7 raspios-kernel-v8 raspios-kernel-2712 raspios-firmware raspios-kernel-headers-common raspios-bootloader wiringpi wiringpi-dev; do
+              for prefix in raspios-kernel-v6 raspios-kernel-v7 raspios-kernel-v8 raspios-kernel-2712 raspios-firmware raspios-kernel-headers-common raspios-bootloader wiringpi wiringpi-dev raspine-watchdog; do
                 NEWEST=$(ls -t ${prefix}-[0-9]*.apk 2>/dev/null | head -1)
 
                 if [ -n "$NEWEST" ]; then

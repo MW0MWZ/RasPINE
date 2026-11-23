@@ -1,0 +1,20 @@
+# Builds and publishes RasPINE's own packages (source in packages/<name>/,
+# no giturl) when their files change, through the source package pipeline.
+name: Build Local Packages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/raspine-watchdog/**'
+  workflow_dispatch:
+
+jobs:
+  raspine-watchdog:
+    permissions:
+      contents: write
+      pages: write
+    uses: ./.github/workflows/build-source-packages.yml
+    with:
+      package: raspine-watchdog
+    secrets: inherit

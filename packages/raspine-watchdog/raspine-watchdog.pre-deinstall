@@ -1,0 +1,14 @@
+#!/bin/sh
+# Stop (the feeder's stop disarms the hardware watchdog) and undo the
+# set-up
+if [ "$(stat -c %d:%i /)" = "$(stat -c %d:%i /proc/1/root/. 2>/dev/null)" ]; then
+	rc-service raspine-watchdog-health stop >/dev/null 2>&1
+	rc-service raspine-watchdog stop >/dev/null 2>&1
+fi
+rc-update del raspine-watchdog-health boot >/dev/null 2>&1
+rc-update del raspine-watchdog boot >/dev/null 2>&1
+[ -f /etc/inittab ] && sed -i '/raspine-watchdog-mark/d' /etc/inittab
+if [ "$(stat -c %d:%i /)" = "$(stat -c %d:%i /proc/1/root/. 2>/dev/null)" ]; then
+	kill -HUP 1 2>/dev/null
+fi
+exit 0

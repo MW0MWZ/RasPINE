@@ -1,0 +1,27 @@
+#!/bin/sh
+# Enable the watchdog (boot runlevel) and mark a shutdown's start in
+# inittab. On a running system, also make init read inittab and start it;
+# not in an image being built (a chroot), where PID 1 is the build host's.
+
+rc-update add raspine-watchdog boot >/dev/null 2>&1
+rc-update add raspine-watchdog-health boot >/dev/null 2>&1
+
+tab=/etc/inittab
+if [ -f "$tab" ]; then
+	# A line written by earlier versions marked the end here: no longer
+	sed -i '/raspine-watchdog-mark stopped/d' "$tab"
+	if ! grep -q "raspine-watchdog-mark stopping" "$tab"; then
+		sed -i 's|^::shutdown:/sbin/openrc shutdown$|::shutdown:/usr/sbin/raspine-watchdog-mark stopping\n&|' "$tab"
+	fi
+	grep -q "raspine-watchdog-mark stopping" "$tab" || \
+		echo "raspine-watchdog: $tab has no '::shutdown:/sbin/openrc shutdown' line: hung shutdowns are not reset" >&2
+fi
+
+# A running system (not a chroot): init reads inittab again, and the
+# watchdog starts now rather than at the next boot
+if [ "$(stat -c %d:%i /)" = "$(stat -c %d:%i /proc/1/root/. 2>/dev/null)" ]; then
+	kill -HUP 1 2>/dev/null
+	rc-service raspine-watchdog start >/dev/null 2>&1
+	rc-service raspine-watchdog-health start >/dev/null 2>&1
+fi
+exit 0
